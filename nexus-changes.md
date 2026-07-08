@@ -11,6 +11,31 @@
 
 ---
 
+**Date:** 2026-07-08 · Session 7  
+**Author:** Abbas  
+**Title:** Security Hardening — Resolve CodeQL Alerts (XSS, ReDoS, URL Validation, CI Permissions)  
+
+**Summary:**  
+Addressed the security alerts raised by GitHub CodeQL scanning. Added an
+HTML-escaping helper to the dashboard and applied it to the model card and model
+form renderers so a model or provider name containing markup can no longer be
+reinterpreted as HTML (cross-site scripting); verified in a browser that a hostile
+name renders as inert escaped text and executes nothing. Introduced a small URL
+utility (`src/lib/url.ts`): a non-regex trailing-slash strip that removes a
+potential polynomial-backtracking (ReDoS) pattern, and a scheme validator that
+restricts outbound provider requests to http(s), blocking `file:` and similar
+schemes through the gateway's fetch. Wired both into the key-test, provider-
+credential, model-validation, and proxy paths. Added a least-privilege
+`permissions: contents: read` block to the CI workflow.
+
+Added unit tests for the URL utility (36 tests total, all green) and a CI status
+badge to the README so the passing checks are visible on the repository's front
+page. The remaining CodeQL "missing rate limiting" notices concern admin routes
+that are already covered by the global per-credential abuse guard and admin
+authentication.
+
+---
+
 **Date:** 2026-07-08 · Session 6  
 **Author:** Abbas  
 **Title:** Phase 2 — Real Admission Control: Atomic RPM/TPM, Tokenizer, Reservation, and Upstream Timeouts  

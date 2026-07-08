@@ -3,6 +3,7 @@ import { discoverBestPool, coolKey, getNextCooldownSeconds } from './nexus.servi
 import { recordTokenUsage }          from './token.service';
 import { computeReserve, countMessageTokens, countTokens } from '../lib/tokenizer';
 import { reconcileTpm }              from '../lib/admission';
+import { stripTrailingSlash }        from '../lib/url';
 
 export interface CompletionsBody {
   model?:       string;
@@ -82,7 +83,7 @@ export async function handleProxy(body: CompletionsBody, reply: FastifyReply, te
   // RPM stays consumed on purpose — the request was attempted against the provider.
   const refundReservation = () => { void reconcileTpm(keyId, reserve, 0).catch(() => {}); };
 
-  const upstreamUrl  = `${route.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+  const upstreamUrl  = `${stripTrailingSlash(route.baseUrl)}/chat/completions`;
   const upstreamBody = { ...body, model: route.modelString };
   const authValue    = `${route.authPrefix ?? 'Bearer'} ${route.decryptedKey}`;
   const headers: Record<string, string> = {

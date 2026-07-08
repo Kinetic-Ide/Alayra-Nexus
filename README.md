@@ -10,6 +10,7 @@
 
 <br>
 
+[![CI](https://github.com/Kinetic-Ide/kinetic-nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/Kinetic-Ide/kinetic-nexus/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-6d28d9.svg?style=for-the-badge)](./LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-3b82f6.svg?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Fastify](https://img.shields.io/badge/Fastify-v5-22c55e.svg?style=for-the-badge)](https://fastify.dev/)

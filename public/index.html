@@ -926,6 +926,10 @@ async function loadModels() {
   } catch(e) { el.innerHTML = `<div style="color:var(--red)">${e.message}</div>`; }
 }
 
+// Escape user-controlled values before they are inserted via innerHTML, so a
+// model/provider name containing markup cannot execute as HTML/script.
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+
 function renderModelCard(m) {
   const caps = MODEL_CAPS.filter(c => m[c]);
   const statusColor = STATUS_COLORS[m.status] || 'var(--muted)';
@@ -935,12 +939,12 @@ function renderModelCard(m) {
   return `<div class="model-card">
     <div class="model-card-info">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
-        <span class="model-name">${m.displayName||m.modelString}</span>
-        <span class="badge ${TIER_MAP[m.tier]||'badge-gray'}" style="text-transform:capitalize">${m.tier||'standard'}</span>
-        <span style="font-size:12px;font-weight:500;color:${statusColor}">${m.status||'active'}</span>
-        ${m.priority!=null?`<span style="font-size:11px;color:var(--subtle)">Priority ${m.priority}</span>`:''}
+        <span class="model-name">${esc(m.displayName||m.modelString)}</span>
+        <span class="badge ${TIER_MAP[m.tier]||'badge-gray'}" style="text-transform:capitalize">${esc(m.tier||'standard')}</span>
+        <span style="font-size:12px;font-weight:500;color:${statusColor}">${esc(m.status||'active')}</span>
+        ${m.priority!=null?`<span style="font-size:11px;color:var(--subtle)">Priority ${esc(m.priority)}</span>`:''}
       </div>
-      <div class="model-string">${m.modelString}</div>
+      <div class="model-string">${esc(m.modelString)}</div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <div class="model-caps">
           ${MODEL_CAPS.map(c=>`<span class="cap-badge ${m[c]?'active':''}">${CAP_LABELS[c]}</span>`).join('')}
@@ -982,14 +986,14 @@ function buildModelForm(m) {
   ).join('');
   return `
     <button class="modal-close" onclick="closeModal()">×</button>
-    <div class="modal-title">${isNew?'Add model':'Edit — '+(m.displayName||m.modelString)}</div>
+    <div class="modal-title">${isNew?'Add model':'Edit — '+esc(m.displayName||m.modelString)}</div>
     <div class="form-row">
       <label class="form-label">Display name</label>
-      <input id="m-display-name" value="${m?m.displayName||'':''}" placeholder="e.g. Claude 3.5 Sonnet"/>
+      <input id="m-display-name" value="${m?esc(m.displayName||''):''}" placeholder="e.g. Claude 3.5 Sonnet"/>
     </div>
     <div class="form-row">
       <label class="form-label">Model string (actual API ID)</label>
-      <input id="m-model-string" value="${m?m.modelString||'':''}" placeholder="e.g. claude-3-5-sonnet-20241022"/>
+      <input id="m-model-string" value="${m?esc(m.modelString||''):''}" placeholder="e.g. claude-3-5-sonnet-20241022"/>
     </div>
     <div class="form-grid">
       <div class="form-row">

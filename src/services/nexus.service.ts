@@ -1,6 +1,7 @@
 import { prisma }           from '../lib/prisma';
 import { decrypt, maskKey } from '../lib/encryption';
 import { admitKey }         from '../lib/admission';
+import { stripTrailingSlash, assertHttpUrl } from '../lib/url';
 
 export { maskKey };
 
@@ -122,10 +123,11 @@ export async function testKey(keyId: string): Promise<{ success: boolean; latenc
   if (!key) return { success: false, error: 'Key not found' };
 
   const apiKey  = decrypt(key.encryptedKey);
-  const baseUrl = key.provider.baseUrl ?? providerDefaultUrl(key.provider.provider);
+  const baseUrl = stripTrailingSlash(key.provider.baseUrl ?? providerDefaultUrl(key.provider.provider));
   const start   = Date.now();
 
   try {
+    assertHttpUrl(baseUrl);
     const res = await fetch(`${baseUrl}/models`, {
       headers: { [key.provider.authHeader]: `${key.provider.authPrefix ?? 'Bearer'} ${apiKey}` },
       signal:  AbortSignal.timeout(5000),
@@ -143,9 +145,11 @@ export async function validateProviderCredentials(
   authHeader: string,
   authPrefix: string | null,
 ): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
-  const url   = `${(baseUrl ?? providerDefaultUrl(provider)).replace(/\/+$/, '')}/models`;
+  const base  = stripTrailingSlash(baseUrl ?? providerDefaultUrl(provider));
+  const url   = `${base}/models`;
   const start = Date.now();
   try {
+    assertHttpUrl(base);
     const res = await fetch(url, {
       headers: { [authHeader]: `${authPrefix ?? 'Bearer'} ${apiKey}` },
       signal:  AbortSignal.timeout(8000),
@@ -168,10 +172,11 @@ export async function validateModel(
   if (!provider.keys.length)  return { ok: false, latencyMs: 0, error: 'No active key for this provider — add a key first' };
 
   const apiKey  = decrypt(provider.keys[0].encryptedKey);
-  const baseUrl = (provider.baseUrl ?? providerDefaultUrl(provider.provider)).replace(/\/+$/, '');
+  const baseUrl = stripTrailingSlash(provider.baseUrl ?? providerDefaultUrl(provider.provider));
   const start   = Date.now();
 
   try {
+    assertHttpUrl(baseUrl);
     const res = await fetch(`${baseUrl}/chat/completions`, {
       method:  'POST',
       headers: {
