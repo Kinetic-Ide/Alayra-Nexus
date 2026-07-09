@@ -11,6 +11,36 @@
 
 ---
 
+**Date:** 2026-07-09 · Session 17  
+**Author:** Abbas  
+**Title:** Phase 4.6 — Observability: Prometheus /metrics and Optional OpenTelemetry  
+
+**Summary:**  
+Added a scrapeable, Prometheus-compatible metrics endpoint so the gateway drops
+straight into an existing operations stack. The endpoint exposes the shape an
+operator actually needs: request rate and duration broken down by outcome and tier,
+the upstream time-to-first-byte, input and output tokens, the prompt-cache hit rate
+from sticky routing, per-provider request and error rates classified by cause
+(rate limit, auth, server, timeout), pool utilization as active/cooling/banned key
+counts, and the standard process and runtime metrics. Counters and histograms are
+updated cheaply in memory on the request path; the pool gauges are refreshed from the
+database per scrape.
+
+The endpoint is guarded rather than world-readable: a scraper authenticates with a
+dedicated metrics token (falling back to the admin password if none is set), and it
+is exempted from the abuse-guard rate limit but never from authentication — reusing
+the same allow-list pattern the health check uses. Distributed tracing is available
+but optional: the gateway-to-provider call is wrapped in an OpenTelemetry span that
+is a no-op with zero overhead unless the operator runs the app with an OpenTelemetry
+SDK, at which point the spans are exported and correlated automatically.
+
+Added unit coverage for the metrics recording paths and exposition (99 tests total,
+all green) and documented scraping and tracing setup in the README. Two small
+dependencies were added (the Prometheus client and the OpenTelemetry API); the
+production dependency audit remains clean.
+
+---
+
 **Date:** 2026-07-09 · Session 16  
 **Author:** Abbas  
 **Title:** Move Repository and Container Image Under the Alayra Systems Organization  

@@ -28,6 +28,8 @@ import { redis }          from './lib/redis';
 import { deriveRateLimitKey } from './lib/rateLimitKey';
 import { getSetting, setSetting } from './services/settings.service';
 import { drainUsage }     from './services/usagePipeline';
+import { metricsText, metricsContentType } from './lib/metrics';
+import { verifyMetricsToken } from './middleware/auth.middleware';
 import { randomUUID }     from 'crypto';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
@@ -70,8 +72,9 @@ async function bootstrap() {
     timeWindow: ABUSE_RATE_LIMIT_WINDOW,
     skipOnError: true, // fail open: a Redis blip must never take the proxy down
     keyGenerator: (request) => deriveRateLimitKey(request.headers.authorization, request.ip),
-    // Health checks must never be throttled — orchestrators poll them constantly.
-    allowList: (request) => request.url === '/health',
+    // Health and metrics must never be throttled — orchestrators/scrapers poll them
+    // constantly. /metrics is exempt from the rate limit but NOT from auth (below).
+    allowList: (request) => request.url === '/health' || request.url === '/metrics',
   });
 
   await app.register(staticFiles, {
@@ -81,6 +84,13 @@ async function bootstrap() {
 
   // Health
   app.get('/health', async () => ({ ok: true, ts: new Date().toISOString() }));
+
+  // Prometheus metrics — auth-guarded (bearer METRICS_TOKEN or ADMIN_PASSWORD),
+  // exempt from the abuse guard above so a scraper is never rate-limited.
+  app.get('/metrics', { preHandler: [verifyMetricsToken] }, async (_req, reply) => {
+    reply.header('Content-Type', metricsContentType);
+    return reply.send(await metricsText());
+  });
 
   await app.register(proxyRoutes);
   await app.register(adminRoutes);

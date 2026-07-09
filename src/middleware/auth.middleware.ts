@@ -52,3 +52,20 @@ export async function verifyAdminPassword(request: FastifyRequest, reply: Fastif
     return reply.code(401).send({ error: 'Unauthorized' });
   }
 }
+
+/**
+ * Guard for /metrics. Prometheus scrapes with a bearer token: a dedicated
+ * METRICS_TOKEN if set (preferred — don't hand a scraper the admin password),
+ * otherwise the admin password as a fallback. Never world-readable.
+ */
+export async function verifyMetricsToken(request: FastifyRequest, reply: FastifyReply) {
+  const auth = request.headers.authorization;
+  if (!auth?.startsWith('Bearer ')) {
+    return reply.code(401).send({ error: 'Unauthorized' });
+  }
+  const token    = auth.slice(7);
+  const expected = process.env.METRICS_TOKEN || process.env.ADMIN_PASSWORD;
+  if (!expected || token !== expected) {
+    return reply.code(401).send({ error: 'Unauthorized' });
+  }
+}

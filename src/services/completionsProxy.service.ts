@@ -24,6 +24,8 @@ import { stripTrailingSlash, assertSafeUrl } from '../lib/url';
 import { getSsrfPolicy }              from './ssrf.service';
 import { getGuardrailConfig }         from './guardrails.service';
 import { evaluateMessages, evaluateText, type CompiledRule } from '../lib/guardrails';
+import * as metrics                   from '../lib/metrics';
+import { startUpstreamSpan, SpanStatusCode } from '../lib/tracing';
 
 export interface CompletionsBody {
   model?:       string;
@@ -122,10 +124,16 @@ export async function handleProxy(
   teamKeyId?: string,
   reqHeaders: Record<string, unknown> = {},
 ): Promise<FastifyReply | void> {
+  // Metrics: measure the whole request and record its outcome at each exit.
+  const t0 = Date.now();
+  let tier: string | undefined = undefined; // set once a route is chosen
+  const observe = (outcome: metrics.RequestOutcome) => metrics.observeRequest(outcome, tier, (Date.now() - t0) / 1000);
+
   const modelField = (body.model ?? '').trim().toLowerCase();
   // Canonical id is `alayra-nexus-1`; `kinetic-nexus-1` and `nexus` stay as silent
   // backward-compatible aliases so existing integrations keep routing.
   if (modelField && modelField !== 'alayra-nexus-1' && modelField !== 'kinetic-nexus-1' && modelField !== 'nexus') {
+    observe('client_error');
     return reply.code(400).send({
       error: `Invalid model "${body.model}". Use model: "alayra-nexus-1" — Alayra Nexus routes automatically.`,
     });
@@ -144,6 +152,7 @@ export async function handleProxy(
     guardHeaders['X-Nexus-Guardrails'] = 'on';
     const verdict = evaluateMessages(messages, guard.compiled);
     if (verdict.decision === 'block') {
+      observe('blocked');
       return reply.code(400).send({ error: 'Request blocked by content guardrails.', guardrails: verdict.matched });
     }
     if (verdict.decision === 'redact') {
@@ -167,6 +176,7 @@ export async function handleProxy(
 
   const route = await discoverBestPool(reserve, session);
   if (!route) {
+    observe('no_capacity');
     const retryAfter = await getNextCooldownSeconds();
     return reply
       .code(503)
@@ -176,6 +186,11 @@ export async function handleProxy(
         retryAfter,
       });
   }
+
+  // Route chosen: record provider dispatch and (if applicable) a prompt-cache hit.
+  tier = route.tier;
+  metrics.providerRequest(route.providerSlug);
+  if (route.sticky) metrics.cacheHit();
 
   const keyId = route.keyId;
   // Release the full token reservation for a request that did not (fully) run.
@@ -188,6 +203,7 @@ export async function handleProxy(
     assertSafeUrl(stripTrailingSlash(route.baseUrl), await getSsrfPolicy());
   } catch (err) {
     refundReservation();
+    observe('ssrf_blocked');
     return reply.code(502).send({ error: err instanceof Error ? err.message : 'Upstream blocked by SSRF policy.' });
   }
 
@@ -207,6 +223,10 @@ export async function handleProxy(
   const controller = new AbortController();
   let ttftTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => controller.abort(), UPSTREAM_TTFT_MS);
 
+  // OTel: span for the gateway → provider call (no-op unless an SDK is attached).
+  const tFetch = Date.now();
+  const span = startUpstreamSpan({ 'nexus.provider': route.providerSlug, 'nexus.tier': route.tier, 'nexus.model': route.modelString });
+
   let upstream: Response;
   try {
     upstream = await fetch(upstreamUrl, { method: 'POST', headers, body: JSON.stringify(upstreamBody), signal: controller.signal });
@@ -215,22 +235,31 @@ export async function handleProxy(
     refundReservation();
     // A timeout/connection failure is a server-side fault: feed the breaker.
     await reportServerFailure(keyId, route.isProbe);
+    metrics.providerError(route.providerSlug, 'timeout');
+    span.recordException(err as Error); span.setStatus({ code: SpanStatusCode.ERROR }); span.end();
+    observe('upstream_error');
     const aborted = err instanceof Error && err.name === 'AbortError';
     return reply.code(504).send({ error: aborted ? 'Upstream timed out before responding.' : 'Upstream connection failed.' });
   }
   if (ttftTimer) { clearTimeout(ttftTimer); ttftTimer = null; }
+  metrics.observeTtfb((Date.now() - tFetch) / 1000);
+  span.setAttribute('http.status_code', upstream.status);
 
   if (!upstream.ok) {
     const errText = await upstream.text().catch(() => 'Upstream error');
     // Classify the failure for the circuit breaker: 429 is flat back-pressure,
     // 401/403 is a bad credential (auto-ban on repeat), 5xx is a server fault
     // (strike/escalate). Other 4xx are the caller's error — the key is fine.
-    if (upstream.status === 429)                             await reportRateLimit(keyId);
-    else if (upstream.status === 401 || upstream.status === 403) await reportAuthFailure(keyId);
-    else if (upstream.status >= 500)                         await reportServerFailure(keyId, route.isProbe);
+    if (upstream.status === 429)                             { await reportRateLimit(keyId); metrics.providerError(route.providerSlug, 'rate_limit'); }
+    else if (upstream.status === 401 || upstream.status === 403) { await reportAuthFailure(keyId); metrics.providerError(route.providerSlug, 'auth'); }
+    else if (upstream.status >= 500)                         { await reportServerFailure(keyId, route.isProbe); metrics.providerError(route.providerSlug, 'server'); }
+    span.setStatus({ code: SpanStatusCode.ERROR }); span.end();
     refundReservation(); // rejected upstream — return the reserved budget
+    // 4xx (other than 429) is the caller's bad request; 429/auth/5xx is an upstream fault.
+    observe(upstream.status >= 500 || upstream.status === 429 || upstream.status === 401 || upstream.status === 403 ? 'upstream_error' : 'client_error');
     return reply.code(upstream.status).send(errText);
   }
+  span.end(); // upstream responded OK
 
   const nexusHeaders: Record<string, string> = {
     'X-Nexus-Model':          route.modelString,
@@ -257,6 +286,7 @@ export async function handleProxy(
     } catch {
       clearTimeout(bodyTimer);
       refundReservation();
+      observe('upstream_error');
       return reply.code(504).send({ error: 'Upstream response timed out or was malformed.' });
     }
     clearTimeout(bodyTimer);
@@ -279,6 +309,7 @@ export async function handleProxy(
     const usageObj     = data.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
     const inputTokens  = usageObj?.prompt_tokens    ?? countMessageTokens(effectiveMessages);
     const outputTokens = usageObj?.completion_tokens ?? 1;
+    observe('success'); metrics.addTokens(inputTokens, outputTokens);
     void reconcileTpm(keyId, reserve, inputTokens + outputTokens).catch(() => {});
     void recordTokenUsage({ sessionId, modelId: route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId }).catch(() => {});
     return;
@@ -318,12 +349,13 @@ export async function handleProxy(
 
     // A stream that connected (200 headers) but hung/aborted mid-flight is a
     // server-side fault; a clean completion closes the breaker and sticks.
-    if (streamFailed) void reportServerFailure(keyId, route.isProbe).catch(() => {});
-    else onHealthy();
+    if (streamFailed) { void reportServerFailure(keyId, route.isProbe).catch(() => {}); metrics.providerError(route.providerSlug, 'server'); observe('upstream_error'); }
+    else { onHealthy(); observe('success'); }
 
     const usage        = parseUsageFromSSE(collected);
     const inputTokens  = usage?.input  ?? countMessageTokens(effectiveMessages);
     const outputTokens = usage?.output ?? estimateDeltaTokens(collected);
+    metrics.addTokens(inputTokens, outputTokens);
     void reconcileTpm(keyId, reserve, inputTokens + outputTokens).catch(() => {});
     void recordTokenUsage({ sessionId, modelId: route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId }).catch(() => {});
     return;
@@ -337,6 +369,7 @@ export async function handleProxy(
   } catch {
     clearTimeout(bodyTimer);
     refundReservation();
+    observe('upstream_error');
     return reply.code(504).send({ error: 'Upstream response timed out or was malformed.' });
   }
   clearTimeout(bodyTimer);
@@ -352,6 +385,7 @@ export async function handleProxy(
   const usageObj     = data.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
   const inputTokens  = usageObj?.prompt_tokens     ?? countMessageTokens(effectiveMessages);
   const outputTokens = usageObj?.completion_tokens  ?? 1;
+  observe('success'); metrics.addTokens(inputTokens, outputTokens);
   void reconcileTpm(keyId, reserve, inputTokens + outputTokens).catch(() => {});
   void recordTokenUsage({ sessionId, modelId: route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId }).catch(() => {});
 

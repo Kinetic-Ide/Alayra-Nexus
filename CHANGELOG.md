@@ -10,6 +10,11 @@ semver. The legacy ids `kinetic-nexus-1` and `nexus` remain accepted as aliases.
 ## [Unreleased]
 
 ### Added
+- **Observability (Phase 4.6):** a Prometheus-compatible `/metrics` endpoint —
+  request rate/duration, upstream TTFB, tokens, cache-hit rate, per-provider
+  request/error rates, pool utilization, and standard process metrics. Auth-guarded
+  by `METRICS_TOKEN` (or `ADMIN_PASSWORD`), exempt from the abuse guard's rate limit.
+  Optional OpenTelemetry span for the gateway→provider call (no-op without an SDK).
 - README "Connect your tools" section with copy-paste setup for Cursor, Cline / Roo
   Code, Continue.dev, the OpenAI SDK (Python + Node), and curl.
 

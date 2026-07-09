@@ -420,6 +420,42 @@ The built-in web dashboard (`/dashboard`) gives you full operational control:
 
 ---
 
+## Observability
+
+A Prometheus-compatible **`/metrics`** endpoint exposes the gateway's operational
+shape, so it drops straight into an existing ops stack.
+
+- **Metrics:** request rate and duration (by outcome and tier), upstream time-to-first-byte,
+  input/output tokens, prompt-cache (sticky) hit rate, per-provider request and error
+  rates (rate-limit / auth / server / timeout), pool utilization (active / cooling /
+  banned keys), plus standard Node process metrics (CPU, memory, event-loop lag, GC).
+- **Auth:** `/metrics` is **not** world-readable like `/health`. Scrape it with a bearer
+  token — set a dedicated **`METRICS_TOKEN`** (recommended), or it falls back to
+  `ADMIN_PASSWORD`. It is exempt from the abuse guard's rate limit but never from auth.
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: alayra-nexus
+    authorization:
+      credentials: <your METRICS_TOKEN>
+    static_configs:
+      - targets: ['your-host:3000']
+```
+
+### Distributed tracing (optional)
+
+The gateway → provider call is wrapped in an OpenTelemetry span. It's a **no-op by
+default** (zero overhead); to collect traces, run the app with a standard OTel SDK and
+point it at your collector — nothing to change in the code:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://your-collector:4318 \
+node --require @opentelemetry/auto-instrumentations-node/register dist/server.js
+```
+
+---
+
 ## Security Model
 
 | Layer | Implementation |
