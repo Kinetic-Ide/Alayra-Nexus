@@ -6,6 +6,8 @@ import { reconcileTpm }              from '../lib/admission';
 import { sessionHash, setStickyKeyId } from '../lib/sticky';
 import { stripTrailingSlash, assertSafeUrl } from '../lib/url';
 import { getSsrfPolicy }              from './ssrf.service';
+import { getGuardrailConfig }         from './guardrails.service';
+import { evaluateMessages, evaluateText, type CompiledRule } from '../lib/guardrails';
 
 export interface CompletionsBody {
   model?:       string;
@@ -56,6 +58,48 @@ function estimateDeltaTokens(collected: string): number {
   return Math.max(1, countTokens(content));
 }
 
+/** Does the rule set contain any rule that inspects the model's output? */
+function hasOutputRules(rules: CompiledRule[]): boolean {
+  return rules.some((r) => (r.appliesTo ?? 'both') !== 'input');
+}
+
+/**
+ * Apply output rules to a non-streaming completion in place. A block replaces the
+ * choice's content with a withheld notice; a redact masks matches. Returns the
+ * names of rules that fired.
+ */
+function applyOutputGuardrails(data: Record<string, unknown>, rules: CompiledRule[]): string[] {
+  const choices = Array.isArray(data.choices) ? data.choices : [];
+  const matched = new Set<string>();
+  for (const choice of choices) {
+    const msg = choice && typeof choice === 'object' ? (choice as { message?: { content?: unknown } }).message : undefined;
+    if (!msg || typeof msg.content !== 'string') continue;
+    const verdict = evaluateText(msg.content, rules, 'output');
+    verdict.matched.forEach((n) => matched.add(n));
+    if (verdict.decision === 'block') {
+      msg.content = '[Response withheld by content guardrails.]';
+      (choice as { finish_reason?: string }).finish_reason = 'content_filter';
+    } else if (verdict.decision === 'redact') {
+      msg.content = verdict.text;
+    }
+  }
+  return [...matched];
+}
+
+/** Serialize one assistant message as a single OpenAI-style streaming chunk + DONE. */
+function toSingleSseChunk(data: Record<string, unknown>): string {
+  const first  = Array.isArray(data.choices) ? data.choices[0] as { message?: { content?: unknown }; finish_reason?: string } : undefined;
+  const content = first && typeof first.message?.content === 'string' ? first.message.content : '';
+  const chunk = {
+    id:      typeof data.id === 'string' ? data.id : `chatcmpl-${Date.now()}`,
+    object:  'chat.completion.chunk',
+    created: typeof data.created === 'number' ? data.created : Math.floor(Date.now() / 1000),
+    model:   typeof data.model === 'string' ? data.model : '',
+    choices: [{ index: 0, delta: { role: 'assistant', content }, finish_reason: first?.finish_reason ?? 'stop' }],
+  };
+  return `data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`;
+}
+
 export async function handleProxy(
   body: CompletionsBody,
   reply: FastifyReply,
@@ -71,7 +115,35 @@ export async function handleProxy(
 
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const isStream = body.stream === true;
-  const reserve  = computeReserve(messages, body.max_tokens, DEFAULT_MAX_TOKENS_RESERVE);
+
+  // ── Guardrails (input side) — inspect/redact/reject before forwarding ──
+  const guard = await getGuardrailConfig();
+  const guardActive = guard.enabled && guard.compiled.length > 0;
+  const guardHeaders: Record<string, string> = {};
+  let effectiveMessages = messages;
+
+  if (guardActive) {
+    guardHeaders['X-Nexus-Guardrails'] = 'on';
+    const verdict = evaluateMessages(messages, guard.compiled);
+    if (verdict.decision === 'block') {
+      return reply.code(400).send({ error: 'Request blocked by content guardrails.', guardrails: verdict.matched });
+    }
+    if (verdict.decision === 'redact') {
+      effectiveMessages = verdict.messages;
+      guardHeaders['X-Nexus-Guardrails-Input'] = `redacted:${verdict.matched.join(',')}`;
+    }
+  }
+
+  const outputFiltering = guardActive && hasOutputRules(guard.compiled);
+  // Buffered-safe mode: the only way to filter a streamed response is to collect it
+  // first, which trades away the zero-buffer TTFT win. We never do that silently —
+  // it happens only when the operator has explicitly opted in.
+  const bufferStream = isStream && outputFiltering && guard.bufferedSafe;
+  if (isStream && outputFiltering && !guard.bufferedSafe) {
+    guardHeaders['X-Nexus-Guardrails-Output'] = 'skipped-streaming';
+  }
+
+  const reserve  = computeReserve(effectiveMessages, body.max_tokens, DEFAULT_MAX_TOKENS_RESERVE);
   // Cache-aware sticky routing: pin a continuing conversation to its last key.
   const session  = sessionHash({ messages, user: body.user }, reqHeaders);
 
@@ -102,7 +174,9 @@ export async function handleProxy(
   }
 
   const upstreamUrl  = `${stripTrailingSlash(route.baseUrl)}/chat/completions`;
-  const upstreamBody = { ...body, model: route.modelString };
+  // Forward the (possibly redacted) messages. In buffered-safe mode we request a
+  // non-streamed response from upstream so we can inspect it before replaying it.
+  const upstreamBody = { ...body, messages: effectiveMessages, model: route.modelString, ...(bufferStream ? { stream: false } : {}) };
   const authValue    = `${route.authPrefix ?? 'Bearer'} ${route.decryptedKey}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -140,12 +214,13 @@ export async function handleProxy(
     return reply.code(upstream.status).send(errText);
   }
 
-  const nexusHeaders = {
+  const nexusHeaders: Record<string, string> = {
     'X-Nexus-Model':          route.modelString,
     'X-Nexus-Provider':       route.providerSlug,
     'X-Nexus-Tier':           route.tier,
     ...(route.wasDowngrade ? { 'X-Nexus-Tier-Downgrade': 'true' } : {}),
     ...(route.sticky        ? { 'X-Nexus-Sticky': 'true' } : {}),
+    ...guardHeaders,
   };
   // On a healthy response, close the breaker and pin this session to the key so
   // follow-up turns reuse the provider's prompt cache.
@@ -153,6 +228,43 @@ export async function handleProxy(
     void reportSuccess(keyId, route.isProbe).catch(() => {});
     if (session) void setStickyKeyId(session, keyId).catch(() => {});
   };
+
+  // ── Buffered-safe streaming: collect the full (non-streamed) upstream response,
+  // apply output guardrails, then replay it to the client as a single SSE chunk.
+  if (bufferStream) {
+    let data: Record<string, unknown>;
+    const bodyTimer = setTimeout(() => controller.abort(), UPSTREAM_BODY_MS);
+    try {
+      data = await upstream.json() as Record<string, unknown>;
+    } catch {
+      clearTimeout(bodyTimer);
+      refundReservation();
+      return reply.code(504).send({ error: 'Upstream response timed out or was malformed.' });
+    }
+    clearTimeout(bodyTimer);
+    onHealthy();
+
+    const matched = applyOutputGuardrails(data, guard.compiled);
+    const outHeaders = { ...nexusHeaders, 'X-Nexus-Guardrails-Output': matched.length ? `buffered:${matched.join(',')}` : 'buffered' };
+
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'Content-Type':       'text/event-stream; charset=utf-8',
+      'Cache-Control':      'no-cache, no-transform',
+      'Connection':         'keep-alive',
+      'X-Accel-Buffering':  'no',
+      ...outHeaders,
+    });
+    reply.raw.write(toSingleSseChunk(data));
+    reply.raw.end();
+
+    const usageObj     = data.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
+    const inputTokens  = usageObj?.prompt_tokens    ?? countMessageTokens(effectiveMessages);
+    const outputTokens = usageObj?.completion_tokens ?? 1;
+    void reconcileTpm(keyId, reserve, inputTokens + outputTokens).catch(() => {});
+    void recordTokenUsage({ sessionId, modelId: route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId }).catch(() => {});
+    return;
+  }
 
   if (isStream && upstream.body) {
     reply.hijack();
@@ -192,7 +304,7 @@ export async function handleProxy(
     else onHealthy();
 
     const usage        = parseUsageFromSSE(collected);
-    const inputTokens  = usage?.input  ?? countMessageTokens(messages);
+    const inputTokens  = usage?.input  ?? countMessageTokens(effectiveMessages);
     const outputTokens = usage?.output ?? estimateDeltaTokens(collected);
     void reconcileTpm(keyId, reserve, inputTokens + outputTokens).catch(() => {});
     void recordTokenUsage({ sessionId, modelId: route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId }).catch(() => {});
@@ -213,8 +325,14 @@ export async function handleProxy(
 
   onHealthy();
 
+  // Guardrails (output side) — safe here because the full body is already buffered.
+  if (outputFiltering) {
+    const matched = applyOutputGuardrails(data, guard.compiled);
+    if (matched.length) nexusHeaders['X-Nexus-Guardrails-Output'] = `applied:${matched.join(',')}`;
+  }
+
   const usageObj     = data.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
-  const inputTokens  = usageObj?.prompt_tokens     ?? countMessageTokens(messages);
+  const inputTokens  = usageObj?.prompt_tokens     ?? countMessageTokens(effectiveMessages);
   const outputTokens = usageObj?.completion_tokens  ?? 1;
   void reconcileTpm(keyId, reserve, inputTokens + outputTokens).catch(() => {});
   void recordTokenUsage({ sessionId, modelId: route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId }).catch(() => {});

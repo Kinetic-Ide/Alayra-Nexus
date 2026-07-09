@@ -11,6 +11,39 @@
 
 ---
 
+**Date:** 2026-07-08 · Session 10  
+**Author:** Abbas  
+**Title:** Guardrails — Optional, Pluggable Prompt and Response Content Filtering  
+
+**Summary:**  
+Added an optional content-guardrails layer that lets an operator redact sensitive
+data or block banned content and prompt-injection patterns, without Nexus imposing
+any policy of its own. It is off by default — a fresh deployment filters nothing —
+and operators supply their own rules as a simple ruleset, with named starting-point
+presets (email, phone, card, SSN, API key, and injection patterns) available to copy.
+
+Filtering follows the request lifecycle deliberately. Input rules run on the
+admission path before a request is ever forwarded: a blocking rule rejects the call
+outright, and a redaction rule masks the match and forwards the cleaned prompt.
+Output rules apply to non-streaming responses, where the full body is already
+available to inspect. The streaming path is intentionally zero-buffer for latency,
+so streamed responses are input-filtered only by default and are marked with an
+explicit header rather than being silently passed through unfiltered; an operator
+who needs output filtering on streams can opt into a buffered-safe mode that collects
+the response, filters it, and replays it as a single chunk, accepting the loss of
+streaming latency as a conscious trade.
+
+The ruleset and its toggles are managed live from a new Content guardrails panel in
+the dashboard Settings tab, backed by new admin endpoints, and can also be seeded
+from environment variables. Rule patterns are validated when saved so a bad
+expression is caught at configuration time, malformed rules are skipped rather than
+allowed to break the request path, and the amount of text scanned per field is
+capped to keep filtering inexpensive. Added unit coverage for the filtering engine
+(75 tests total, all green), documented the feature and the streaming trade-off in
+the README, and verified the new settings panel renders in the dashboard.
+
+---
+
 **Date:** 2026-07-08 · Session 9  
 **Author:** Abbas  
 **Title:** Network Security — SSRF Protection with Default-On Private-Host Blocking and an Opt-In Allowlist  

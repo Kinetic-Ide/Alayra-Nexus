@@ -373,6 +373,23 @@ tr:hover td{background:rgba(255,255,255,.02)}
           <div id="ssrf-env-hint" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
           <button class="btn btn-sm" style="margin-top:10px" onclick="saveSsrf()">Save network settings</button>
         </div>
+
+        <div class="card" style="max-width:500px;margin-top:16px">
+          <div class="card-title">Content guardrails</div>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Optional prompt/response filtering — redact PII or block banned content and injection patterns. Off by default. Rules are a JSON array; each has a <code>name</code>, <code>pattern</code> (regex), <code>action</code> (<code>block</code> or <code>redact</code>), and optional <code>appliesTo</code> (<code>input</code>/<code>output</code>/<code>both</code>) and <code>replacement</code>.</p>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:10px">
+            <input type="checkbox" id="gr-enabled"/>
+            <span>Enable content guardrails</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:10px">
+            <input type="checkbox" id="gr-buffered"/>
+            <span>Buffered-safe mode — filter streamed responses too (trades streaming latency for inspection)</span>
+          </label>
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Rules (JSON array)</label>
+          <textarea id="gr-rules" rows="7" spellcheck="false" placeholder='[{"name":"email","pattern":"[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}","action":"redact","appliesTo":"both","replacement":"[REDACTED_EMAIL]"}]' style="width:100%;font-family:monospace;font-size:12px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);resize:vertical"></textarea>
+          <div id="gr-hint" style="font-size:12px;color:var(--muted);margin-top:6px">Presets you can copy: <code>email</code>, <code>us-phone</code>, <code>credit-card</code>, <code>ssn</code>, <code>api-key</code>, <code>prompt-injection</code>.</div>
+          <button class="btn btn-sm" style="margin-top:10px" onclick="saveGuardrails()">Save guardrails</button>
+        </div>
       </div>
 
     </main>
@@ -1487,6 +1504,7 @@ async function loadSettings() {
       ? 'Also allowed via environment (read-only): ' + env.join(', ')
       : '';
   } catch {}
+  loadGuardrails();
 }
 
 async function saveSsrf() {
@@ -1497,6 +1515,31 @@ async function saveSsrf() {
     await PUT('/admin/settings/ssrf', { allowPrivate, allowList });
     toast('Network settings saved');
     loadSettings();
+  } catch(e) { toast(e.message, true); }
+}
+
+async function loadGuardrails() {
+  if (window._demoMode) return;
+  try {
+    const gr = await GET('/admin/settings/guardrails');
+    document.getElementById('gr-enabled').checked = !!gr.enabled;
+    document.getElementById('gr-buffered').checked = !!gr.bufferedSafe;
+    document.getElementById('gr-rules').value = JSON.stringify(gr.rules || [], null, 2);
+  } catch {}
+}
+
+async function saveGuardrails() {
+  const enabled = document.getElementById('gr-enabled').checked;
+  const bufferedSafe = document.getElementById('gr-buffered').checked;
+  const raw = document.getElementById('gr-rules').value.trim();
+  let rules;
+  try { rules = raw ? JSON.parse(raw) : []; }
+  catch { toast('Rules must be valid JSON', true); return; }
+  if (!Array.isArray(rules)) { toast('Rules must be a JSON array', true); return; }
+  try {
+    await PUT('/admin/settings/guardrails', { enabled, bufferedSafe, rules });
+    toast('Guardrails saved');
+    loadGuardrails();
   } catch(e) { toast(e.message, true); }
 }
 

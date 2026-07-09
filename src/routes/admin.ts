@@ -12,6 +12,7 @@ import { testKey, banKey, coolKey, validateProviderCredentials, validateModel, p
 import { onSuccess as breakerReset } from '../lib/breaker';
 import { assertSafeUrl }         from '../lib/url';
 import { getSsrfPolicy, getSsrfConfig, setSsrfConfig } from '../services/ssrf.service';
+import { getGuardrailConfigForUI, setGuardrailConfig } from '../services/guardrails.service';
 import { redis }               from '../lib/redis';
 import { REGISTRY_CACHE_KEY }  from '../lib/registryCacheKey';
 
@@ -68,6 +69,37 @@ export default async function adminRoutes(fastify: FastifyInstance) {
     const body = ssrfSchema.parse(request.body);
     await setSsrfConfig(body.allowPrivate, body.allowList);
     return reply.send(await getSsrfConfig());
+  });
+
+  // ── Guardrails / content filtering ────────────────────────────────
+
+  fastify.get('/admin/settings/guardrails', adminGuard, async (_req, reply) => {
+    return reply.send(await getGuardrailConfigForUI());
+  });
+
+  const guardrailSchema = z.object({
+    enabled:      z.boolean(),
+    bufferedSafe: z.boolean(),
+    rules: z.array(z.object({
+      name:        z.string().min(1).max(60),
+      pattern:     z.string().min(1).max(2000),
+      flags:       z.string().max(10).optional(),
+      action:      z.enum(['block', 'redact']),
+      appliesTo:   z.enum(['input', 'output', 'both']).optional(),
+      replacement: z.string().max(200).optional(),
+    })).max(100),
+  });
+
+  fastify.put('/admin/settings/guardrails', adminGuard, async (request, reply) => {
+    const body = guardrailSchema.parse(request.body);
+    // Reject rules whose regex will not compile, so a bad pattern is caught at
+    // save time rather than silently skipped on the request path.
+    for (const r of body.rules) {
+      try { new RegExp(r.pattern, r.flags ?? 'gi'); }
+      catch { return reply.code(400).send({ error: `Invalid regex in rule "${r.name}": ${r.pattern}` }); }
+    }
+    await setGuardrailConfig(body.enabled, body.bufferedSafe, body.rules);
+    return reply.send(await getGuardrailConfigForUI());
   });
 
   // ── Providers ─────────────────────────────────────────────────────

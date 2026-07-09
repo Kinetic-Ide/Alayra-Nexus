@@ -50,6 +50,7 @@ Kinetic Nexus is the infrastructure layer that sits between your application and
 | **Intelligent Load Balancing** | Automatic rotation across active keys; cooling and banned keys are automatically bypassed |
 | **Circuit Breaker** | Per-key breaker with escalating cooldown, a single half-open recovery probe, separate 429 handling, and auto-ban on repeated auth failures |
 | **Cache-Aware Sticky Routing** | Multi-turn conversations stay pinned to the same upstream so the provider's prompt cache isn't thrown away by round-robin |
+| **Content Guardrails** | Optional, pluggable prompt/response filtering — redact PII or block banned content and injection patterns. Off by default |
 | **Tiered Failover** | Premium → Standard → Fast chains; when the best key fails the next tier fires instantly |
 | **OpenAI-Compatible API** | Drop-in `/v1/chat/completions` — change one base URL, nothing else |
 | **Team Key Issuance** | Create scoped access tokens per team, each with an independently configurable RPM limit |
@@ -352,6 +353,35 @@ Running a **local model** (Ollama, LM Studio, a private gateway)? Allow just tha
 Allowlist entries are `host` or `host:port` (a bare host permits any port). The env values
 form a read-only baseline; hosts added in the dashboard are merged on top.
 
+### Content guardrails (optional)
+
+Guardrails are an **opt-in** content filter for prompts and responses — redact PII, or
+block banned content and prompt-injection patterns. They are **off by default**; a fresh
+deployment filters nothing until you enable them under *Settings → Content guardrails* (or
+via `GUARDRAILS_*` env vars). Nexus hard-codes no policy — you bring the rules:
+
+```jsonc
+// each rule: name, pattern (regex), action (block|redact),
+// appliesTo (input|output|both, default both), optional replacement
+[
+  { "name": "email", "pattern": "[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}", "action": "redact", "replacement": "[REDACTED_EMAIL]" },
+  { "name": "injection", "pattern": "ignore (?:all |the )?previous instructions", "action": "block", "appliesTo": "input" }
+]
+```
+
+Named presets you can copy as starting points: `email`, `us-phone`, `credit-card`, `ssn`,
+`api-key`, `prompt-injection`.
+
+- **Input filtering** runs on the admission path *before* the request is forwarded — a
+  `block` rule returns `400`, a `redact` rule masks the match and forwards the cleaned prompt.
+- **Output filtering** applies to **non-streaming** responses (block ⇒ the content is
+  withheld, redact ⇒ matches masked).
+- **Streaming + output rules:** the streaming path is intentionally zero-buffer for
+  latency, so a response can't be inspected mid-stream. By default streamed responses are
+  **input-filtered only** and carry an explicit `X-Nexus-Guardrails-Output: skipped-streaming`
+  header — never silently unfiltered. Enable **buffered-safe mode** to collect the response,
+  filter it, and replay it as a single chunk, trading the streaming latency win for inspection.
+
 > [!WARNING]
 > Your `.env` file contains `MASTER_ENCRYPTION_KEY` and `ADMIN_PASSWORD`.  
 > Never commit it. This repository's `.gitignore` excludes `.env` by default.
@@ -370,6 +400,7 @@ form a read-only baseline; hosts added in the dashboard are merged on top.
 - [x] Automated test suite and CI (lint, typecheck, test, build, audit)
 - [x] Circuit breaker (escalating cooldown, half-open probe) + cache-aware sticky routing
 - [x] SSRF protection — default-on private-host blocking with an opt-in allowlist
+- [x] Optional content guardrails — pluggable PII redaction and content/injection blocking
 - [ ] Per-key TPM enforcement (limits are configurable today; enforcement upcoming)
 - [ ] Atomic pre-admission rate limiting with real token accounting
 - [ ] Webhook and email alerts on key failure or budget threshold
