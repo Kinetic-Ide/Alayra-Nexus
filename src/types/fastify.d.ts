@@ -23,5 +23,11 @@ import 'fastify';
 declare module 'fastify' {
   interface FastifyRequest {
     teamKeyId?: string;
+    /** Present when the key belongs to a Team — carries what budget enforcement needs. */
+    team?: {
+      id:           string;
+      budgetUsd:    number | null;
+      budgetPeriod: string;
+    };
   }
 }

@@ -10,6 +10,14 @@ semver. The legacy ids `kinetic-nexus-1` and `nexus` remain accepted as aliases.
 ## [Unreleased]
 
 ### Added
+- **Teams & budget hierarchy (Phase 5):** a `Team` entity groups scoped access keys
+  and carries a per-period USD budget cap (daily / weekly / monthly). Enforcement
+  runs on the admission path: over-budget teams get `429` + `Retry-After` (window
+  reset), suspended teams get `403`. Spend is Redis-tracked and seeded from real
+  usage history, so caps set mid-period start from actual spend and survive a Redis
+  restart. New admin API: `GET/POST/PATCH/DELETE /admin/teams` (list includes live
+  period spend), team assignment on key creation, and `PATCH /admin/team-keys/:id`
+  to reassign. Existing keys without a team are unaffected.
 - **Observability (Phase 4.6):** a Prometheus-compatible `/metrics` endpoint —
   request rate/duration, upstream TTFB, tokens, cache-hit rate, per-provider
   request/error rates, pool utilization, and standard process metrics. Auth-guarded
@@ -17,6 +25,17 @@ semver. The legacy ids `kinetic-nexus-1` and `nexus` remain accepted as aliases.
   Optional OpenTelemetry span for the gateway→provider call (no-op without an SDK).
 - README "Connect your tools" section with copy-paste setup for Cursor, Cline / Roo
   Code, Continue.dev, the OpenAI SDK (Python + Node), and curl.
+
+### Fixed
+- **Database migrations now actually apply.** The migration files were flat SQL that
+  `prisma migrate deploy` (run by the container at startup) silently ignored — a
+  fresh `docker run` database got no tables, and Compose installs missed the
+  post-init migration. Migrations now use the standard Prisma layout and are applied
+  in order on startup; the Compose initdb mount was removed as redundant.
+  **Existing deployments** whose schema was created by the old initdb path should
+  baseline once before upgrading:
+  `npx prisma migrate resolve --applied 0001_init && npx prisma migrate resolve --applied 0002_team_key_usage`
+  (or use `npm run db:push`).
 
 ## [1.0.0] - 2026-07-09
 

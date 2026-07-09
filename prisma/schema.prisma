@@ -71,14 +71,33 @@ model TokenUsage {
   @@index([nexusTeamKeyId])
 }
 
+// A team groups scoped access keys and carries the per-period budget cap that is
+// enforced on the admission path. Deliberately shaped so an `Org` parent can wrap
+// it later with one additive column (orgId) — no restructuring migration needed.
+model Team {
+  id           String         @id @default(uuid())
+  name         String
+  status       String         @default("active") // active | suspended
+  assignedTier String?        // preferred routing tier — stored now, wired with the Teams tab rebuild
+  budgetUsd    Float?         // USD spend cap per period; null = unlimited
+  budgetPeriod String         @default("monthly") // daily | weekly | monthly
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  teamKeys     NexusTeamKey[]
+}
+
 model NexusTeamKey {
   id           String       @id @default(uuid())
   name         String
   encryptedKey String
   keyHash      String       @unique
   maskedKey    String
+  teamId       String?
+  team         Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
   createdAt    DateTime     @default(now())
   tokenUsages  TokenUsage[]
+
+  @@index([teamId])
 }
 
 model AppSettings {

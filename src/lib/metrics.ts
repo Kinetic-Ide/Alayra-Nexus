@@ -94,7 +94,7 @@ const providersGauge = new Gauge({
 
 export type RequestOutcome =
   | 'success' | 'client_error' | 'blocked' | 'no_capacity'
-  | 'upstream_error' | 'ssrf_blocked';
+  | 'upstream_error' | 'ssrf_blocked' | 'budget_blocked';
 
 export function observeRequest(outcome: RequestOutcome, tier: string | undefined, seconds: number): void {
   requestsTotal.inc({ outcome, tier: tier ?? 'none' });

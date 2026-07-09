@@ -9,8 +9,9 @@ services:
       POSTGRES_PASSWORD: nexus
       POSTGRES_DB:       nexus
     volumes:
+      # Schema is applied by the app container at startup (`prisma migrate deploy`
+      # runs every migration in prisma/migrations in order) — no initdb seed needed.
       - postgres_data:/var/lib/postgresql/data
-      - ./prisma/migrations/0001_init.sql:/docker-entrypoint-initdb.d/0001_init.sql
     ports:
       - "5432:5432"
     healthcheck:

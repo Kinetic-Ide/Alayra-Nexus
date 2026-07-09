@@ -26,6 +26,13 @@ import { getGuardrailConfig }         from './guardrails.service';
 import { evaluateMessages, evaluateText, type CompiledRule } from '../lib/guardrails';
 import * as metrics                   from '../lib/metrics';
 import { startUpstreamSpan, SpanStatusCode } from '../lib/tracing';
+import { checkTeamBudget, type BudgetPeriod } from './budget.service';
+
+export interface TeamContext {
+  id:           string;
+  budgetUsd:    number | null;
+  budgetPeriod: string;
+}
 
 export interface CompletionsBody {
   model?:       string;
@@ -123,6 +130,7 @@ export async function handleProxy(
   reply: FastifyReply,
   teamKeyId?: string,
   reqHeaders: Record<string, unknown> = {},
+  team?: TeamContext,
 ): Promise<FastifyReply | void> {
   // Metrics: measure the whole request and record its outcome at each exit.
   const t0 = Date.now();
@@ -137,6 +145,25 @@ export async function handleProxy(
     return reply.code(400).send({
       error: `Invalid model "${body.model}". Use model: "alayra-nexus-1" — Alayra Nexus routes automatically.`,
     });
+  }
+
+  // ── Team budget gate — enforced before any provider work happens. Requests
+  // already in flight when the cap is crossed may overshoot by their own cost
+  // (cost is unknowable up front on a streaming gateway); see budget.service.
+  if (team && team.budgetUsd != null) {
+    const budget = await checkTeamBudget(team.id, team.budgetUsd, team.budgetPeriod as BudgetPeriod);
+    if (!budget.allowed) {
+      observe('budget_blocked');
+      return reply
+        .code(429)
+        .header('Retry-After', String(budget.retryAfterSeconds))
+        .send({
+          error: `Team budget exhausted: $${budget.spendUsd.toFixed(4)} of $${team.budgetUsd} used this ${team.budgetPeriod === 'daily' ? 'day' : team.budgetPeriod === 'weekly' ? 'week' : 'month'}. Resets in ${budget.retryAfterSeconds}s.`,
+          spendUsd:   budget.spendUsd,
+          budgetUsd:  team.budgetUsd,
+          retryAfter: budget.retryAfterSeconds,
+        });
+    }
   }
 
   const messages = Array.isArray(body.messages) ? body.messages : [];
@@ -311,7 +338,7 @@ export async function handleProxy(
     const outputTokens = usageObj?.completion_tokens ?? 1;
     observe('success'); metrics.addTokens(inputTokens, outputTokens);
     void reconcileTpm(keyId, reserve, inputTokens + outputTokens).catch(() => {});
-    void recordTokenUsage({ sessionId, modelId: route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId }).catch(() => {});
+    void recordTokenUsage({ sessionId, modelId: route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod }).catch(() => {});
     return;
   }
 
@@ -357,7 +384,7 @@ export async function handleProxy(
     const outputTokens = usage?.output ?? estimateDeltaTokens(collected);
     metrics.addTokens(inputTokens, outputTokens);
     void reconcileTpm(keyId, reserve, inputTokens + outputTokens).catch(() => {});
-    void recordTokenUsage({ sessionId, modelId: route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId }).catch(() => {});
+    void recordTokenUsage({ sessionId, modelId: route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod }).catch(() => {});
     return;
   }
 
@@ -387,7 +414,7 @@ export async function handleProxy(
   const outputTokens = usageObj?.completion_tokens  ?? 1;
   observe('success'); metrics.addTokens(inputTokens, outputTokens);
   void reconcileTpm(keyId, reserve, inputTokens + outputTokens).catch(() => {});
-  void recordTokenUsage({ sessionId, modelId: route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId }).catch(() => {});
+  void recordTokenUsage({ sessionId, modelId: route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod }).catch(() => {});
 
   for (const [k, v] of Object.entries(nexusHeaders)) reply.header(k, v);
   return reply.code(200).send(data);

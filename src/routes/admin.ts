@@ -30,6 +30,7 @@ import { assertSafeUrl }         from '../lib/url';
 import { getSsrfPolicy, getSsrfConfig, setSsrfConfig } from '../services/ssrf.service';
 import { getGuardrailConfigForUI, setGuardrailConfig } from '../services/guardrails.service';
 import { getRoutingConfigForUI, setCostWeight } from '../services/routing.service';
+import { getCurrentSpend, type BudgetPeriod } from '../services/budget.service';
 import { redis }               from '../lib/redis';
 import { REGISTRY_CACHE_KEY }  from '../lib/registryCacheKey';
 
@@ -344,25 +345,93 @@ export default async function adminRoutes(fastify: FastifyInstance) {
     return reply.send({ success: true });
   });
 
+  // ── Teams ─────────────────────────────────────────────────────────
+  // Phase 5 backend: the Team entity + budget hierarchy. The Teams dashboard tab
+  // rebuild (Phase 8) consumes this API.
+
+  const teamSchema = z.object({
+    name:         z.string().min(1).max(80),
+    status:       z.enum(['active', 'suspended']).default('active'),
+    assignedTier: z.enum(['premium', 'standard', 'fast']).nullish(),
+    budgetUsd:    z.number().positive().nullish(),
+    budgetPeriod: z.enum(['daily', 'weekly', 'monthly']).default('monthly'),
+  });
+
+  fastify.get('/admin/teams', adminGuard, async (_req, reply) => {
+    const teams = await prisma.team.findMany({
+      include: { _count: { select: { teamKeys: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    // Current-period spend per team — a Redis read each (seeded from DB on miss);
+    // fine at admin-page frequency.
+    const withSpend = await Promise.all(teams.map(async (t) => ({
+      id:           t.id,
+      name:         t.name,
+      status:       t.status,
+      assignedTier: t.assignedTier,
+      budgetUsd:    t.budgetUsd,
+      budgetPeriod: t.budgetPeriod,
+      keyCount:     t._count.teamKeys,
+      spendUsd:     await getCurrentSpend(t.id, t.budgetPeriod as BudgetPeriod),
+      createdAt:    t.createdAt,
+    })));
+    return reply.send({ teams: withSpend });
+  });
+
+  fastify.post('/admin/teams', adminGuard, async (request, reply) => {
+    const body = teamSchema.parse(request.body);
+    const team = await prisma.team.create({ data: { id: randomUUID(), ...body } });
+    return reply.code(201).send({ team });
+  });
+
+  fastify.patch('/admin/teams/:id', adminGuard, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body   = teamSchema.partial().parse(request.body);
+    const team   = await prisma.team.update({ where: { id }, data: body });
+    return reply.send({ team });
+  });
+
+  fastify.delete('/admin/teams/:id', adminGuard, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    // Keys survive their team (teamId → NULL via FK), they just lose the budget cap.
+    await prisma.team.delete({ where: { id } });
+    return reply.send({ success: true });
+  });
+
   // ── Team keys ─────────────────────────────────────────────────────
 
   fastify.get('/admin/team-keys', adminGuard, async (_req, reply) => {
-    const keys = await prisma.nexusTeamKey.findMany({ orderBy: { createdAt: 'asc' } });
-    return reply.send({ keys: keys.map(k => ({ id: k.id, name: k.name, maskedKey: k.maskedKey, createdAt: k.createdAt })) });
+    const keys = await prisma.nexusTeamKey.findMany({ orderBy: { createdAt: 'asc' }, include: { team: { select: { id: true, name: true } } } });
+    return reply.send({ keys: keys.map(k => ({ id: k.id, name: k.name, maskedKey: k.maskedKey, team: k.team, createdAt: k.createdAt })) });
   });
 
   fastify.post('/admin/team-keys', adminGuard, async (request, reply) => {
-    const { name } = request.body as { name: string };
+    const { name, teamId } = request.body as { name: string; teamId?: string | null };
     if (!name?.trim()) return reply.code(400).send({ error: 'name is required' });
+    if (teamId) {
+      const team = await prisma.team.findUnique({ where: { id: teamId } });
+      if (!team) return reply.code(400).send({ error: 'teamId does not match an existing team' });
+    }
     const plain      = 'nx_' + randomBytes(24).toString('hex');
     const keyHash    = createHash('sha256').update(plain).digest('hex');
     const maskedKey  = plain.slice(0, 6) + '••••••••' + plain.slice(-4);
     const created    = await prisma.nexusTeamKey.create({
-      data: { id: randomUUID(), name: name.trim(), encryptedKey: encrypt(plain), keyHash, maskedKey },
+      data: { id: randomUUID(), name: name.trim(), encryptedKey: encrypt(plain), keyHash, maskedKey, teamId: teamId ?? null },
     });
     return reply.code(201).send({
-      key: { id: created.id, name: created.name, maskedKey, createdAt: created.createdAt, plainKey: plain },
+      key: { id: created.id, name: created.name, maskedKey, teamId: created.teamId, createdAt: created.createdAt, plainKey: plain },
     });
+  });
+
+  fastify.patch('/admin/team-keys/:id', adminGuard, async (request, reply) => {
+    const { id }     = request.params as { id: string };
+    const { teamId } = request.body as { teamId: string | null };
+    if (teamId) {
+      const team = await prisma.team.findUnique({ where: { id: teamId } });
+      if (!team) return reply.code(400).send({ error: 'teamId does not match an existing team' });
+    }
+    const key = await prisma.nexusTeamKey.update({ where: { id }, data: { teamId: teamId ?? null } });
+    return reply.send({ key: { id: key.id, name: key.name, teamId: key.teamId } });
   });
 
   fastify.get('/admin/team-keys/:id/reveal', adminGuard, async (request, reply) => {

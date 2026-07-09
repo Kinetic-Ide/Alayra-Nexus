@@ -30,11 +30,23 @@ export async function verifyApiKey(request: FastifyRequest, reply: FastifyReply)
   const nexusKey = await getSetting('NEXUS_API_KEY');
   if (nexusKey && token === nexusKey) return;
 
-  // 2. Check team keys via SHA-256 hash (O(1) DB lookup, no decryption needed)
+  // 2. Check team keys via SHA-256 hash (O(1) DB lookup, no decryption needed).
+  // The team relation rides the same query so budget/status enforcement costs no
+  // extra round-trip.
   const tokenHash = createHash('sha256').update(token).digest('hex');
-  const teamKey   = await prisma.nexusTeamKey.findUnique({ where: { keyHash: tokenHash } });
+  const teamKey   = await prisma.nexusTeamKey.findUnique({ where: { keyHash: tokenHash }, include: { team: true } });
   if (teamKey) {
+    if (teamKey.team?.status === 'suspended') {
+      return reply.code(403).send({ error: 'This team is suspended. Contact your gateway administrator.' });
+    }
     request.teamKeyId = teamKey.id;
+    if (teamKey.team) {
+      request.team = {
+        id:           teamKey.team.id,
+        budgetUsd:    teamKey.team.budgetUsd,
+        budgetPeriod: teamKey.team.budgetPeriod,
+      };
+    }
     return;
   }
 

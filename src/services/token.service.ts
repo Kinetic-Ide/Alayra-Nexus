@@ -18,6 +18,7 @@ import { prisma }          from '../lib/prisma';
 import { randomUUID }      from 'crypto';
 import { getModelRegistry } from './model.service';
 import { emit }            from './usagePipeline';
+import { addSpend, type BudgetPeriod } from './budget.service';
 
 type Period = 'today' | '7d' | '30d' | '90d';
 
@@ -52,6 +53,10 @@ export interface RecordTokenUsageParams {
   inputTokens:     number;
   outputTokens:    number;
   nexusTeamKeyId?: string;
+  // Team budget attribution: when set, this request's cost is added to the team's
+  // current budget window as soon as it is known.
+  teamId?:           string;
+  teamBudgetPeriod?: string;
 }
 
 export async function recordTokenUsage(p: RecordTokenUsageParams): Promise<void> {
@@ -61,6 +66,14 @@ export async function recordTokenUsage(p: RecordTokenUsageParams): Promise<void>
     const m = registry.find(r => r.modelString === p.modelName || r.id === p.modelId) as Record<string, unknown> | undefined;
     if (m) estimatedUsd = modelCost(m, p.inputTokens, p.outputTokens);
   } catch { /* non-fatal — never block a proxy request */ }
+
+  // Record the request's real cost against the team's budget window (fire-and-
+  // forget — budget accounting must never block or fail a proxied request).
+  if (p.teamId && estimatedUsd > 0) {
+    const period = (p.teamBudgetPeriod === 'daily' || p.teamBudgetPeriod === 'weekly' || p.teamBudgetPeriod === 'monthly')
+      ? p.teamBudgetPeriod as BudgetPeriod : 'monthly';
+    void addSpend(p.teamId, period, estimatedUsd).catch(() => {});
+  }
 
   // Hand off to the async pipeline instead of writing to Postgres inline: the
   // request path never waits on the analytics INSERT, and writes are batched.

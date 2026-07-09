@@ -358,6 +358,32 @@ are ranked last but never dropped.
 
 ---
 
+## Teams & budgets
+
+Group your scoped access keys into **teams**, and give each team a **USD budget cap**
+per day, week, or month. Enforcement happens on the admission path — before a request
+ever reaches a provider:
+
+- A key that belongs to a team over its budget gets **`429`** with the current spend,
+  the cap, and a `Retry-After` for when the window resets (UTC).
+- A **suspended** team's keys get **`403`** immediately.
+- Spend is tracked in Redis and **seeded from your real usage history**, so setting a
+  cap mid-month starts from what the team has actually spent — and budgets survive a
+  Redis restart.
+- Keys without a team (and teams without a cap) behave exactly as before — nothing
+  changes until you opt in.
+
+> [!NOTE]
+> Cost is only knowable after a response completes (streaming), so enforcement is
+> check-then-spend: requests already in flight when the cap is crossed can overshoot
+> it by their own cost. That's the standard trade for budget caps on a streaming
+> gateway.
+
+Manage teams via the admin API (`/admin/teams`) — the dashboard Teams tab consumes
+this in an upcoming release.
+
+---
+
 ## API Reference
 
 ### Proxy Endpoint
@@ -396,8 +422,13 @@ curl http://localhost:3000/v1/chat/completions \
 | `GET` | `/admin/keys/:id/metrics` | Live RPM and status for a key |
 | `GET` | `/admin/models` | List model registry |
 | `PUT` | `/admin/models` | Add or update a model in the registry |
+| `GET` | `/admin/teams` | List teams with key counts and current-period spend |
+| `POST` | `/admin/teams` | Create a team (name, budget cap + period, status) |
+| `PATCH` | `/admin/teams/:id` | Update a team (budget, status, tier) |
+| `DELETE` | `/admin/teams/:id` | Delete a team (its keys survive, unassigned) |
 | `GET` | `/admin/team-keys` | List team keys |
-| `POST` | `/admin/team-keys` | Issue a new team key |
+| `POST` | `/admin/team-keys` | Issue a new team key (optionally assigned to a team) |
+| `PATCH` | `/admin/team-keys/:id` | Assign or unassign a key's team |
 | `GET` | `/admin/usage` | Usage totals for a period |
 | `GET` | `/admin/usage/by-team-key` | Usage breakdown by team key |
 | `GET` | `/admin/analytics/timeseries/teams` | Daily time series by team |

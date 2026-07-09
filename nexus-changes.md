@@ -11,6 +11,44 @@
 
 ---
 
+**Date:** 2026-07-09 · Session 18  
+**Author:** Abbas  
+**Title:** Phase 5 — Teams, Budget Hierarchy, and a Migration-Pipeline Fix  
+
+**Summary:**  
+Introduced a real team entity. Until now a "team key" was just a named access token;
+there was no team to attach members, budgets, or policy to. Teams now group scoped
+access keys and carry a spending budget — a USD cap per day, week, or month — plus a
+status and an assigned routing tier (stored now, wired into the dashboard's Teams
+tab in an upcoming phase). The model is deliberately shaped so a parent organization
+level can wrap it later with a single additive column, no restructuring required.
+
+Budget enforcement rides the admission path, before any provider work happens. A key
+belonging to a team that has exhausted its budget receives a clear rejection with the
+current spend, the cap, and exactly when the window resets; a suspended team's keys
+are refused outright. Spend is tracked in Redis for per-request cheapness but seeded
+from the real recorded usage history on a cache miss — so a cap set mid-period starts
+from what the team has genuinely spent, and budgets survive a Redis restart. Because
+cost on a streaming gateway is only knowable after a response completes, enforcement
+is check-then-spend: requests already in flight when a cap is crossed can overshoot
+by their own cost, a documented and standard trade. Keys without a team, and teams
+without a cap, behave exactly as before. A new admin API manages teams (list with
+live period spend, create, update, delete) and assigns keys to teams; the Teams
+dashboard tab will consume it in the UI rebuild phase.
+
+The phase also surfaced and fixed a real deployment bug: the migration files were
+flat SQL that the container's startup migration step silently ignored, leaving a
+fresh single-container database with no tables at all. Migrations now use the
+standard layout and genuinely apply in order at startup, and the compose file's
+init-mount workaround was removed. Existing deployments created by the old path
+baseline once with two commands, documented in the changelog.
+
+Added unit coverage for the budget window math (including ISO-week year boundaries),
+the seed-from-history path, and the allow/block decision (111 tests total, all
+green), and documented teams, budgets, and the new endpoints in the README.
+
+---
+
 **Date:** 2026-07-09 · Session 17  
 **Author:** Abbas  
 **Title:** Phase 4.6 — Observability: Prometheus /metrics and Optional OpenTelemetry  
