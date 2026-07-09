@@ -390,6 +390,14 @@ tr:hover td{background:rgba(255,255,255,.02)}
           <div id="gr-hint" style="font-size:12px;color:var(--muted);margin-top:6px">Presets you can copy: <code>email</code>, <code>us-phone</code>, <code>credit-card</code>, <code>ssn</code>, <code>api-key</code>, <code>prompt-injection</code>.</div>
           <button class="btn btn-sm" style="margin-top:10px" onclick="saveGuardrails()">Save guardrails</button>
         </div>
+
+        <div class="card" style="max-width:500px;margin-top:16px">
+          <div class="card-title">Cost-aware routing</div>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Among providers that are healthy and in-headroom within a tier, bias routing toward the cheaper one (using model registry pricing). This only breaks ties — it never overrides tier priority, circuit-breaker/rate-limit state, or sticky cache affinity.</p>
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Cost weight — <span id="cw-val" style="color:var(--text);font-weight:600">0</span> <span style="color:var(--muted)">(0 = ignore cost · 1 = strict cheapest-first)</span></label>
+          <input type="range" id="cw-range" min="0" max="1" step="0.1" value="0" style="width:100%" oninput="document.getElementById('cw-val').textContent=this.value"/>
+          <button class="btn btn-sm" style="margin-top:12px" onclick="saveRouting()">Save routing</button>
+        </div>
       </div>
 
     </main>
@@ -1505,6 +1513,7 @@ async function loadSettings() {
       : '';
   } catch {}
   loadGuardrails();
+  loadRouting();
 }
 
 async function saveSsrf() {
@@ -1540,6 +1549,25 @@ async function saveGuardrails() {
     await PUT('/admin/settings/guardrails', { enabled, bufferedSafe, rules });
     toast('Guardrails saved');
     loadGuardrails();
+  } catch(e) { toast(e.message, true); }
+}
+
+async function loadRouting() {
+  if (window._demoMode) return;
+  try {
+    const r = await GET('/admin/settings/routing');
+    const w = String(r.costWeight ?? 0);
+    document.getElementById('cw-range').value = w;
+    document.getElementById('cw-val').textContent = w;
+  } catch {}
+}
+
+async function saveRouting() {
+  const costWeight = parseFloat(document.getElementById('cw-range').value);
+  try {
+    await PUT('/admin/settings/routing', { costWeight });
+    toast('Routing saved');
+    loadRouting();
   } catch(e) { toast(e.message, true); }
 }
 

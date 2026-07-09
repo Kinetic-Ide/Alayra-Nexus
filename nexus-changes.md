@@ -11,6 +11,38 @@
 
 ---
 
+**Date:** 2026-07-08 · Session 11  
+**Author:** Abbas  
+**Title:** Cost-Aware Routing — Bias Toward the Cheapest Healthy, In-Headroom Provider  
+
+**Summary:**  
+Added a cost dimension to the router, completing the load / cost / latency /
+capability picture. When several providers in the same tier are healthy and have
+request and token headroom, Nexus can now prefer the cheaper one, using the
+per-token pricing already carried in the model registry — no new data source. It is
+a tiebreaker only, governed by a single cost-weight knob from 0 to 1: zero leaves
+the existing provider order untouched (the default, so no deployment changes
+behaviour until an operator opts in), one is strict cheapest-first within a tier,
+and values in between interpolate, biasing toward cheaper without discarding the
+operator's configured order. Unpriced providers rank last but are never dropped.
+
+Correctness comes first by construction. Cost is applied only in the fallback
+selection path, after sticky cache affinity — a continuing conversation stays pinned
+to the key holding its prompt cache even when a cheaper provider exists, because a
+cache hit usually wins on total cost. It sits within a tier, never across tiers, so
+capability is never traded for price. And it reorders only which providers are
+*tried*: every candidate still passes the circuit breaker and the atomic
+rate/token-headroom check, so a cheaper provider that is cooling or over its limits
+is still skipped — cost can never promote an ineligible key. The weight is editable
+live from a new Cost-aware routing panel in the dashboard Settings tab, backed by a
+new admin endpoint, and can also be seeded from an environment variable.
+
+Added unit coverage for the pricing signal and the ordering blend, including the
+sticky/eligibility guarantees at the boundaries (87 tests total, all green), and
+documented the feature and its ordering rules in the README.
+
+---
+
 **Date:** 2026-07-08 · Session 10  
 **Author:** Abbas  
 **Title:** Guardrails — Optional, Pluggable Prompt and Response Content Filtering  

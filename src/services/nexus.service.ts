@@ -3,6 +3,9 @@ import { decrypt, maskKey } from '../lib/encryption';
 import { admitKey }         from '../lib/admission';
 import * as breaker         from '../lib/breaker';
 import { getStickyKeyId }   from '../lib/sticky';
+import { costOrder, effectivePrice } from '../lib/routing';
+import { getCostWeight }     from './routing.service';
+import { getModelRegistry }  from './model.service';
 import { stripTrailingSlash, assertSafeUrl } from '../lib/url';
 import { getSsrfPolicy }     from './ssrf.service';
 
@@ -123,12 +126,32 @@ async function tryStickyKey(keyId: string, reserveTokens: number): Promise<Nexus
  * eligible key is out of RPM or TPM headroom.
  */
 export async function discoverBestPool(reserveTokens: number, sessionKey?: string | null): Promise<NexusRoute | null> {
+  // Sticky cache-affinity is resolved first and always wins over the cost
+  // tiebreaker: a cache hit on a slightly pricier provider usually beats a cache
+  // miss on the cheapest one.
   if (sessionKey) {
     const stickyKeyId = await getStickyKeyId(sessionKey);
     if (stickyKeyId) {
       const stickyRoute = await tryStickyKey(stickyKeyId, reserveTokens);
       if (stickyRoute) return stickyRoute;
     }
+  }
+
+  // Cost-aware routing (opt-in). When enabled, build a model→price lookup so
+  // providers can be reordered cheapest-first within a tier. Cost only reorders
+  // *attempts*; eligibility (breaker + admission) is still enforced per provider,
+  // so the returned provider is always the cheapest one that is actually usable.
+  const costWeight = await getCostWeight();
+  let priceOf: (p: { preferredModel: string | null }) => number | null = () => null;
+  if (costWeight > 0) {
+    const registry = await getModelRegistry();
+    const prices = new Map<string, number | null>();
+    for (const m of registry as unknown as Record<string, unknown>[]) {
+      const price = effectivePrice(m);
+      if (typeof m.modelString === 'string') prices.set(m.modelString, price);
+      if (typeof m.id === 'string')          prices.set(m.id, price);
+    }
+    priceOf = (p) => (p.preferredModel ? prices.get(p.preferredModel) ?? null : null);
   }
 
   let preferredTierFound = false;
@@ -139,7 +162,9 @@ export async function discoverBestPool(reserveTokens: number, sessionKey?: strin
       orderBy: { createdAt: 'asc' },
     });
 
-    for (const provider of providers) {
+    const ordered = costWeight > 0 ? costOrder(providers, priceOf, costWeight) : providers;
+
+    for (const provider of ordered) {
       if (!preferredTierFound) preferredTierFound = true;
       const route = await tryPickKey(provider, reserveTokens);
       if (route) {

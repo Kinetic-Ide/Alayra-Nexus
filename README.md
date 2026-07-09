@@ -52,6 +52,7 @@ Kinetic Nexus is the infrastructure layer that sits between your application and
 | **Cache-Aware Sticky Routing** | Multi-turn conversations stay pinned to the same upstream so the provider's prompt cache isn't thrown away by round-robin |
 | **Content Guardrails** | Optional, pluggable prompt/response filtering — redact PII or block banned content and injection patterns. Off by default |
 | **Tiered Failover** | Premium → Standard → Fast chains; when the best key fails the next tier fires instantly |
+| **Cost-Aware Routing** | Optional: within a tier, bias toward the cheapest healthy, in-headroom provider using registry pricing — a tiebreaker that never overrides health or cache affinity |
 | **OpenAI-Compatible API** | Drop-in `/v1/chat/completions` — change one base URL, nothing else |
 | **Team Key Issuance** | Create scoped access tokens per team, each with an independently configurable RPM limit |
 | **Real-Time Rate Limiting** | Per-key RPM enforcement via Redis with live utilization meters (per-key TPM budgets are configurable; enforcement is on the roadmap) |
@@ -245,6 +246,23 @@ away on every turn. Nexus instead pins a conversation to the key that last serve
   cooling, banned, or out of headroom.
 - Sticky-routed responses carry an **`X-Nexus-Sticky: true`** header.
 
+### Cost-aware routing (optional)
+
+Within a tier, when several providers are healthy and in-headroom, Nexus can bias toward the
+**cheaper** one using the per-token pricing already in your model registry — so "route to the
+cheapest *capable, healthy, in-headroom* provider" becomes real. It is a **tiebreaker only**,
+controlled by a single weight (*Settings → Cost-aware routing*, or `ROUTING_COST_WEIGHT`):
+
+- `0` (default) — cost is ignored; provider order is unchanged.
+- `1` — strict cheapest-first within a tier.
+- in between — interpolates, biasing toward cheaper without ignoring your configured order.
+
+Cost **never** overrides correctness. It is applied *after* tier priority (capability), the
+circuit breaker and rate/token headroom (an ineligible cheap provider is still skipped), and
+sticky cache affinity (a continuing conversation stays pinned to its cached key even if a
+cheaper provider exists — a cache hit usually wins on total cost anyway). Unpriced providers
+are ranked last but never dropped.
+
 > [!NOTE]
 > **Model exposure:** Nexus deliberately exposes a **single virtual model** — send
 > `model: "kinetic-nexus-1"` and the gateway routes across your pool by tier, health, and
@@ -401,6 +419,7 @@ Named presets you can copy as starting points: `email`, `us-phone`, `credit-card
 - [x] Circuit breaker (escalating cooldown, half-open probe) + cache-aware sticky routing
 - [x] SSRF protection — default-on private-host blocking with an opt-in allowlist
 - [x] Optional content guardrails — pluggable PII redaction and content/injection blocking
+- [x] Cost-aware routing — bias toward the cheapest healthy, in-headroom provider (tiebreaker)
 - [ ] Per-key TPM enforcement (limits are configurable today; enforcement upcoming)
 - [ ] Atomic pre-admission rate limiting with real token accounting
 - [ ] Webhook and email alerts on key failure or budget threshold

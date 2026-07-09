@@ -13,6 +13,7 @@ import { onSuccess as breakerReset } from '../lib/breaker';
 import { assertSafeUrl }         from '../lib/url';
 import { getSsrfPolicy, getSsrfConfig, setSsrfConfig } from '../services/ssrf.service';
 import { getGuardrailConfigForUI, setGuardrailConfig } from '../services/guardrails.service';
+import { getRoutingConfigForUI, setCostWeight } from '../services/routing.service';
 import { redis }               from '../lib/redis';
 import { REGISTRY_CACHE_KEY }  from '../lib/registryCacheKey';
 
@@ -100,6 +101,20 @@ export default async function adminRoutes(fastify: FastifyInstance) {
     }
     await setGuardrailConfig(body.enabled, body.bufferedSafe, body.rules);
     return reply.send(await getGuardrailConfigForUI());
+  });
+
+  // ── Routing (cost-aware) ──────────────────────────────────────────
+
+  fastify.get('/admin/settings/routing', adminGuard, async (_req, reply) => {
+    return reply.send(await getRoutingConfigForUI());
+  });
+
+  const routingSchema = z.object({ costWeight: z.number().min(0).max(1) });
+
+  fastify.put('/admin/settings/routing', adminGuard, async (request, reply) => {
+    const body = routingSchema.parse(request.body);
+    await setCostWeight(body.costWeight);
+    return reply.send(await getRoutingConfigForUI());
   });
 
   // ── Providers ─────────────────────────────────────────────────────
