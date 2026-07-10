@@ -123,6 +123,24 @@ describe('login — with a second factor', () => {
     expect(await auth.login(PASSWORD, '000000', SOURCE)).toMatchObject({ ok: false, reason: 'invalid' });
   });
 
+  // Otherwise someone who already holds the password has an unthrottled oracle that
+  // confirms it, forever, at no cost.
+  it('counts a missing code against the lockout', async () => {
+    for (let i = 1; i < auth.MAX_LOGIN_ATTEMPTS; i++) {
+      expect(await auth.login(PASSWORD, undefined, SOURCE)).toMatchObject({ reason: 'totp_required' });
+    }
+    expect(await auth.login(PASSWORD, undefined, SOURCE)).toMatchObject({ ok: false, reason: 'locked_out' });
+  });
+
+  // The normal two-step sign-in must not be penalised: the first submit has no code
+  // because the user cannot know a factor is enrolled until the server says so.
+  it('does not penalise the legitimate two-step sign-in', async () => {
+    for (let i = 0; i < 20; i++) {
+      expect(await auth.login(PASSWORD, undefined, SOURCE)).toMatchObject({ reason: 'totp_required' });
+      expect((await auth.login(PASSWORD, totp(secret), SOURCE)).ok).toBe(true); // success clears the counter
+    }
+  });
+
   it('accepts an unused recovery code in place of a TOTP code, once', async () => {
     prismaMock.adminRecoveryCode.findUnique.mockResolvedValueOnce({ id: 'r1', usedAt: null });
     prismaMock.adminRecoveryCode.update.mockResolvedValue({});

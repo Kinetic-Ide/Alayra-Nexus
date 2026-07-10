@@ -22,7 +22,10 @@ semver. The legacy ids `kinetic-nexus-1` and `nexus` remain accepted as aliases.
   password and a wrong code are indistinguishable in the response, so the login form
   cannot be used as a password oracle. **Admin API tokens** (`/admin/tokens`, hashed
   and revocable) let scripts and CI authenticate without a second factor.
-  `nexus_admin_login_total{result}` tracks sign-in outcomes.
+  `nexus_admin_login_total{result}` tracks sign-in outcomes. Every unsuccessful
+  outcome feeds the lockout counter, including a correct password submitted without
+  a code — otherwise an attacker already holding the password would have an
+  unthrottled oracle confirming it.
 - **Custom-domain storage** — a `DomainAlias` model with per-domain verification state
   and a TXT challenge token. Schema only; the UI arrives in Phase 7.
 - **Architecture docs** (`docs/architecture/`): `PROJECT-STRUCTURE.md` covers the

@@ -225,8 +225,13 @@ export type LoginResult =
  *
  * `totp_required` is only returned when the password was *correct* and a code was
  * absent — a wrong password always yields `invalid`, so the response never reveals
- * whether a password was right before the second factor is checked. A failed attempt
- * of either kind feeds the same lockout counter.
+ * whether a password was right before the second factor is checked.
+ *
+ * Every unsuccessful outcome feeds the same lockout counter, including
+ * `totp_required`. Exempting it would leave an attacker who already holds the password
+ * with an unthrottled oracle that confirms it, forever, at no cost. The legitimate
+ * two-step sign-in (password, then password + code) is not penalised: a success clears
+ * the counter, so only an *abandoned* sign-in accumulates.
  */
 export async function login(password: string, code: string | undefined, source: string): Promise<LoginResult> {
   const retryAfter = await lockoutRemaining(source);
@@ -240,7 +245,12 @@ export async function login(password: string, code: string | undefined, source: 
 
   const { enabled } = await getTotpState();
   if (enabled) {
-    if (!code) return { ok: false, reason: 'totp_required' };
+    if (!code) {
+      const { lockedOut, retryAfter: ra } = await recordFailedAttempt(source);
+      return lockedOut
+        ? { ok: false, reason: 'locked_out', retryAfter: ra }
+        : { ok: false, reason: 'totp_required' };
+    }
     const row = await prisma.adminAuth.findUnique({ where: { id: SINGLETON } });
     const bySecret = !!row?.totpSecret && verifyTotp(code, decrypt(row.totpSecret));
     const byRecovery = bySecret ? false : await consumeRecoveryCode(code);

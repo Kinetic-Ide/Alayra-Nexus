@@ -4,7 +4,7 @@
 // it is deferred: the DOM is parsed before any of this runs.
 import { state, logout }            from './state.js';
 import { copyText, closeModal }     from './utils.js';
-import { doLogin, restoreSession }  from './auth.js';
+import { doLogin, restoreSession, restoreTotpHint } from './auth.js';
 import { initApp, showTab }         from './app.js';
 import { enterDemoMode }            from './demo.js';
 import * as pools                   from './tabs/pools.js';
@@ -74,6 +74,7 @@ if (state.token === 'demo') {
   document.getElementById('login-screen').style.display = 'none';
   enterDemoMode();
 } else {
+  restoreTotpHint();
   restoreSession();
 }
 

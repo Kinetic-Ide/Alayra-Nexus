@@ -11,12 +11,22 @@ function showError(msg) {
   document.getElementById('login-err').textContent = msg || '';
 }
 
-/** Reveal the authenticator field once the server tells us a second factor is set. */
-function showTotpField() {
+// A submitted password with no code counts against the lockout, so remember on this
+// browser that a factor is enrolled and ask for the code up front. Only a hint: the
+// server decides, and a stale hint costs nothing.
+const TOTP_HINT_KEY = 'nx_totp_enrolled';
+
+/** Reveal the authenticator field once we know a second factor is set. */
+export function showTotpField() {
   const row = document.getElementById('login-totp-row');
   if (!row) return;
   row.style.display = '';
-  document.getElementById('login-totp').focus();
+  localStorage.setItem(TOTP_HINT_KEY, '1');
+}
+
+/** Called at boot: pre-reveal the field if this browser has seen the factor before. */
+export function restoreTotpHint() {
+  if (localStorage.getItem(TOTP_HINT_KEY) === '1') showTotpField();
 }
 
 function enterApp() {
@@ -52,12 +62,19 @@ export async function doLogin() {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     // A second factor is enrolled and the password was accepted; ask for the code.
-    if (body.totpRequired) { showTotpField(); showError('Enter your authenticator code.'); return; }
+    if (body.totpRequired) {
+      showTotpField();
+      document.getElementById('login-totp').focus();
+      showError('Enter your authenticator code.');
+      return;
+    }
     showError(body.error || 'Incorrect password');
     return;
   }
 
   const { token } = await res.json();
+  // Signed in without a code, so the factor was disabled since we last saw it.
+  if (!code) localStorage.removeItem(TOTP_HINT_KEY);
   state.token = token;
   sessionStorage.setItem('nx_token', token);
   enterApp();
