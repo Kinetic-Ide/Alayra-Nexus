@@ -43,6 +43,16 @@ semver. The legacy ids `kinetic-nexus-1` and `nexus` remain accepted as aliases.
   own / fallback / isolated_block. Configure via **Pools → + Key → Owner**, or
   `POST /admin/providers/:providerId/keys`.
 
+- **Response caching (Phase 4.5):** optional exact-match response cache. When enabled,
+  an identical request (same model + messages + generation params) is served from
+  Redis, skipping the provider entirely — a real $0 call. The cache key excludes
+  `stream`/`user`, so a hit is replayed in whichever mode the client asked for; every
+  hit emits a $0 usage event attributed to the team (analytics stay honest, budget is
+  not consumed). Tool-call and `n > 1` responses are not cached. Off by default;
+  configurable via `CACHE_ENABLED` / `CACHE_TTL_SECONDS`, the dashboard Settings tab,
+  or `GET/PUT /admin/settings/cache`. Responses carry `X-Nexus-Cache: hit|miss`, and a
+  `nexus_response_cache_total{result}` metric tracks hit/miss/store.
+
 ### Security
 - The admin password, the Nexus API key, and the metrics token are now compared with
   `crypto.timingSafeEqual` over fixed-width digests. `===` on strings short-circuits at
@@ -115,16 +125,6 @@ semver. The legacy ids `kinetic-nexus-1` and `nexus` remain accepted as aliases.
 - **Dashboard:** the key "Test" button no longer stays stuck reading `err` when the
   request itself throws. The analytics charts now index their series once instead of
   rescanning the full result set for every plotted point.
-
-- **Response caching (Phase 4.5):** optional exact-match response cache. When enabled,
-  an identical request (same model + messages + generation params) is served from
-  Redis, skipping the provider entirely — a real $0 call. The cache key excludes
-  `stream`/`user`, so a hit is replayed in whichever mode the client asked for; every
-  hit emits a $0 usage event attributed to the team (analytics stay honest, budget is
-  not consumed). Tool-call and `n > 1` responses are not cached. Off by default;
-  configurable via `CACHE_ENABLED` / `CACHE_TTL_SECONDS`, the dashboard Settings tab,
-  or `GET/PUT /admin/settings/cache`. Responses carry `X-Nexus-Cache: hit|miss`, and a
-  `nexus_response_cache_total{result}` metric tracks hit/miss/store.
 
 ## [1.1.0] - 2026-07-09
 
