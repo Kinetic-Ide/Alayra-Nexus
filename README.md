@@ -56,6 +56,7 @@ Alayra Nexus is the infrastructure layer that sits between your application and 
 | **Tiered Failover** | Premium → Standard → Fast chains; when the best key fails the next tier fires instantly |
 | **Cost-Aware Routing** | Optional: within a tier, bias toward the cheapest healthy, in-headroom provider using registry pricing — a tiebreaker that never overrides health or cache affinity |
 | **OpenAI-Compatible API** | Drop-in `/v1/chat/completions` — change one base URL, nothing else |
+| **Anthropic-Compatible API** | `/v1/messages` too, so **Claude Code** and the Anthropic SDKs route through the same pool — streaming, tools, and all |
 | **Team Key Issuance** | Create scoped access tokens per team, each with an independently configurable RPM limit |
 | **BYOK (Bring Your Own Key)** | A team can register its own provider keys, encrypted at rest and routed only for that team's traffic — with optional fall-back to the shared pool, or hard isolation |
 | **Real-Time Rate Limiting** | Per-key RPM enforcement via Redis with live utilization meters (per-key TPM budgets are configurable; enforcement is on the roadmap) |
@@ -228,11 +229,32 @@ Dashboard is live at `http://localhost:3000`
 
 ## Connect your tools
 
-Alayra Nexus speaks the OpenAI API, so **any tool that lets you set a custom base URL works.** You only need three values:
+Alayra Nexus speaks both the **OpenAI** API (`/v1/chat/completions`) and the
+**Anthropic Messages** API (`/v1/messages`), so almost any tool that lets you set a
+custom base URL works — including Claude Code. You only need three values:
 
 - **Base URL:** `http://<your-host>:3000/v1`
-- **API key:** a team key from the dashboard, sent as `Authorization: Bearer <key>`
+- **API key:** a team key from the dashboard (sent as `Authorization: Bearer <key>`, or `x-api-key: <key>`)
 - **Model:** `alayra-nexus-1`
+
+> [!NOTE]
+> **Cursor** (and some other cloud tools) route requests through their own servers, so
+> they cannot reach `http://localhost:3000` — they need a **publicly reachable HTTPS**
+> base URL. Local tools such as Cline, Continue.dev, and Claude Code call your gateway
+> directly and work against localhost. This is a Cursor constraint, not a Nexus one —
+> LiteLLM has the same requirement.
+
+### Claude Code
+Claude Code speaks the Anthropic Messages API. Point it at the gateway:
+
+```bash
+export ANTHROPIC_BASE_URL="http://<your-host>:3000"
+export ANTHROPIC_AUTH_TOKEN="<your-team-key>"
+claude
+```
+
+Requests route through the same pool, failover, budgets, and analytics as everything
+else. On startup Claude Code reads `GET /v1/models` to populate its model picker.
 
 ### Cursor
 Settings → **Models** → enable **OpenAI API Key**, paste your team key, tick **Override OpenAI Base URL** and set it to `http://<your-host>:3000/v1`. Add a custom model named `alayra-nexus-1`.
@@ -501,13 +523,18 @@ Watch adoption with the `nexus_byok_requests_total{result}` metric — a sustain
 
 ## API Reference
 
-### Proxy Endpoint
+### Proxy Endpoints
 
 ```
-POST /v1/chat/completions
+POST /v1/chat/completions   OpenAI Chat Completions (streaming + non-streaming)
+POST /v1/messages           Anthropic Messages (streaming + non-streaming)
+GET  /v1/models             Model discovery (OpenAI + Anthropic shape)
 ```
 
-Fully OpenAI-compatible. Send any model string registered in your model registry.
+Both proxy endpoints run through the same routing, failover, budgets, guardrails,
+cache, and analytics — `/v1/messages` is translated to and from the OpenAI shape at the
+edge, not a separate path. Authenticate with `Authorization: Bearer <key>` or, for
+Anthropic clients, `x-api-key: <key>`.
 
 ```bash
 curl http://localhost:3000/v1/chat/completions \

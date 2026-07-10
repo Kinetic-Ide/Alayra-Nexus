@@ -11,6 +11,68 @@
 
 ---
 
+**Date:** 2026-07-11 · Session 28  
+**Author:** Abbas  
+**Title:** Phase 6.2 — The Anthropic Messages API  
+
+**Summary:**  
+The gateway spoke one protocol, OpenAI's, and that single fact was why an entire class
+of tools could not use it. Claude Code, and every application built on Anthropic's own
+SDK, address a different endpoint with a differently shaped request, a differently
+shaped reply, and a wholly different streaming format. No base URL or key could bridge
+that; the endpoint simply did not exist. It exists now. Alayra Nexus answers Anthropic's
+Messages API at the same origin it answers OpenAI's, and a request arriving in either
+dialect is served by exactly the same machinery behind it.
+
+The design rule that governed the phase was that there must not be a second gateway
+hiding inside the first. Routing, failover, the circuit breaker, budget enforcement,
+the bring-your-own-key isolation, guardrails, the response cache, and the analytics
+pipeline are difficult precisely because they are careful, and duplicating them for a
+second protocol would mean maintaining two subtly diverging copies of the most
+important code in the project. So the Anthropic endpoint owns none of that. It
+translates the incoming request into the canonical OpenAI shape, hands it to the same
+function that already serves OpenAI traffic, and translates whatever comes back. The
+core does not know, and does not need to know, which dialect the caller spoke.
+
+Making the response translation invisible to that core was the interesting part. The
+core writes its answer — a JSON body, or a stream of server-sent events — to a reply
+object. Rather than teach it a second output format, the Anthropic route hands it a
+stand-in reply that looks exactly like the real one and quietly translates every write
+on its way to the socket. A non-streaming completion becomes an Anthropic message; an
+error becomes an Anthropic error envelope with the right type for its status; and a
+streamed OpenAI response is re-framed, event by event, into Anthropic's flow of a
+message opening, a content block opening, a run of deltas, the block closing, a final
+delta bearing the stop reason, and the message closing. The translation happens on the
+wire, never by collecting the whole answer first, so the time a user waits for the first
+token is unchanged.
+
+The two formats disagree about structure, not merely about names, and the streaming
+translator is where that shows. OpenAI streams flat fragments; Anthropic frames a
+message as a sequence of self-contained content blocks, each opened and closed in turn,
+with tool calls appearing as their own blocks distinct from text. The translator is a
+small state machine that opens a text block when the first text arrives, closes it and
+opens a tool block when a tool call begins, streams the tool's arguments as they trickle
+in, and closes everything cleanly at the end — even for an empty response, which still
+must be a well-formed message. Requests are translated in the other direction with the
+same care: a top-level system prompt becomes a leading message, tool definitions and
+tool results and image blocks are each mapped across, and the model the caller named is
+replaced with the gateway's own, because Nexus decides the model, not the client.
+
+Because Anthropic clients present their key in a different header, the authenticator now
+accepts it either as a bearer token or as the header Anthropic uses, and the
+model-discovery endpoint returns a description broad enough that a client of either
+dialect reads what it expects. The whole path is covered by unit tests: the request and
+response translations, the error mapping, and the streaming state machine driven through
+recorded fragment sequences for plain text, for tool calls, for a response split
+awkwardly across network reads, and for the empty case. A separate suite drives the
+reply stand-in exactly as the core does and confirms Anthropic events emerge on the
+socket. What remains is to point Claude Code at a running gateway and watch a real
+session, which is a live check rather than a code one.
+
+**Green gate:** lint 0 · typecheck 0 · 288 tests pass (+31) · build 0 · npm audit 0 vulnerabilities.
+
+---
+
 **Date:** 2026-07-10 · Session 27  
 **Author:** Abbas  
 **Title:** Phase 6.1 — Model-First Routing  

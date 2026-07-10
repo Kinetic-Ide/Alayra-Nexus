@@ -22,11 +22,16 @@ import { safeEqual }    from '../lib/timingSafe';
 import { isValidSession, verifyAdminApiToken, isTwoFactorEnabled } from '../services/adminAuth.service';
 
 export async function verifyApiKey(request: FastifyRequest, reply: FastifyReply) {
-  const auth = request.headers.authorization;
-  if (!auth?.startsWith('Bearer ')) {
-    return reply.code(401).send({ error: 'Missing Bearer token' });
+  // Accept both `Authorization: Bearer <key>` (OpenAI clients) and `x-api-key: <key>`
+  // (Anthropic clients, notably Claude Code via ANTHROPIC_BASE_URL).
+  const auth   = request.headers.authorization;
+  const apiKey = request.headers['x-api-key'];
+  const token = auth?.startsWith('Bearer ')
+    ? auth.slice(7)
+    : (typeof apiKey === 'string' ? apiKey : '');
+  if (!token) {
+    return reply.code(401).send({ error: 'Missing API key (Authorization: Bearer, or x-api-key)' });
   }
-  const token = auth.slice(7);
 
   // 1. Check main Nexus API key. Constant-time: `===` short-circuits at the first
   // differing byte, so rejection latency reveals how many leading bytes were right.

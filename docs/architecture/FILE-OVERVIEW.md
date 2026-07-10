@@ -11,6 +11,8 @@ for the layering rule and the request path.
 | `breaker.ts` | Per-key circuit breaker: escalating cooldown, single half-open probe, flat 429 handling, auto-ban on repeated auth failure |
 | `routing.ts` | Cost-aware ordering within a tier (a tiebreaker, never an override) |
 | `modelSelect.ts` | Model-first selection: capabilities, tier order, and the ordered candidate list routing attempts |
+| `anthropic.ts` | Anthropic Messages ⇄ OpenAI translation (request, response, errors) + the streaming event state machine |
+| `anthropicReply.ts` | Reply wrapper so `/v1/messages` reuses `handleProxy` unchanged, translating its OpenAI writes to Anthropic |
 | `sticky.ts` | Session fingerprinting and the session→key pin that preserves a provider's prompt cache |
 | `scope.ts` | BYOK routing scope. One value drives both key selection and the response-cache namespace |
 | `responseCache.ts` | Exact-match cache key, entry shape, and SSE↔JSON replay conversion |

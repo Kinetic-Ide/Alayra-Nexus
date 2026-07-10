@@ -18,6 +18,8 @@ import { FastifyInstance } from 'fastify';
 import { verifyApiKey }   from '../middleware/auth.middleware';
 import { handleProxy }    from '../services/completionsProxy.service';
 import type { CompletionsBody } from '../services/completionsProxy.service';
+import { anthropicToOpenAI } from '../lib/anthropic';
+import { createAnthropicReply } from '../lib/anthropicReply';
 
 export default async function proxyRoutes(fastify: FastifyInstance) {
   fastify.post('/v1/chat/completions', { preHandler: [verifyApiKey] }, async (request, reply) => {
@@ -25,15 +27,35 @@ export default async function proxyRoutes(fastify: FastifyInstance) {
     return handleProxy(request.body as CompletionsBody, reply, teamKeyId, request.headers as Record<string, unknown>, request.team);
   });
 
+  // Anthropic Messages API (Phase 6.2) — unlocks Claude Code and the Anthropic SDKs.
+  // The request is translated to the canonical OpenAI shape and run through the exact
+  // same pipeline as /v1/chat/completions; a wrapper reply translates the OpenAI
+  // response (streaming or not) back to Anthropic on the wire. No second routing path.
+  fastify.post('/v1/messages', { preHandler: [verifyApiKey] }, async (request, reply) => {
+    const openaiBody = anthropicToOpenAI(request.body as Record<string, unknown>) as unknown as CompletionsBody;
+    const { reply: anthropicReply } = createAnthropicReply(reply);
+    return handleProxy(openaiBody, anthropicReply, request.teamKeyId, request.headers as Record<string, unknown>, request.team);
+  });
+
+  // Model discovery. Returned as a superset that satisfies both an OpenAI client
+  // (reads `object`/`data[].id`) and an Anthropic one such as Claude Code (reads
+  // `data[].id`/`display_name` and the pagination fields), so one route serves both.
   fastify.get('/v1/models', { preHandler: [verifyApiKey] }, async (_request, reply) => {
+    const now = Math.floor(Date.now() / 1000);
     return reply.send({
       object: 'list',
       data: [{
-        id:       'alayra-nexus-1',
-        object:   'model',
-        created:  Math.floor(Date.now() / 1000),
-        owned_by: 'alayra-nexus',
+        id:           'alayra-nexus-1',
+        object:       'model',
+        type:         'model',
+        created:      now,
+        created_at:   new Date().toISOString(),
+        owned_by:     'alayra-nexus',
+        display_name: 'Alayra Nexus',
       }],
+      has_more: false,
+      first_id: 'alayra-nexus-1',
+      last_id:  'alayra-nexus-1',
     });
   });
 }

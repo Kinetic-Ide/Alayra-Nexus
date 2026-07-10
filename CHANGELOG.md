@@ -9,6 +9,17 @@ semver. The legacy ids `kinetic-nexus-1` and `nexus` remain accepted as aliases.
 
 ## [Unreleased]
 
+### Added
+- **Anthropic Messages API — `POST /v1/messages` (Phase 6.2).** Alayra Nexus now speaks
+  Anthropic's protocol as well as OpenAI's, so **Claude Code** and the Anthropic SDKs
+  route through the same gateway. Point Claude Code at it with
+  `ANTHROPIC_BASE_URL=<nexus>` and `ANTHROPIC_AUTH_TOKEN=<team key>`. Streaming, tool
+  calls, images, and a `system` prompt are translated to and from the OpenAI shape at
+  the edge — the request runs through the exact same routing, failover, budgets,
+  guardrails, cache, and analytics as `/v1/chat/completions`, not a second path.
+  `GET /v1/models` now returns a shape both OpenAI and Anthropic clients accept, and API
+  keys may be sent as `Authorization: Bearer` **or** `x-api-key`.
+
 ### Changed
 - **Routing is model-first (Phase 6.1).** The Models tab registry is now the source of
   truth for which model runs, its tier, and its priority — not each pool's single
