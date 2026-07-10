@@ -45,6 +45,16 @@ semver. The legacy ids `kinetic-nexus-1` and `nexus` remain accepted as aliases.
   `budgetUsd: null` for a team that funds its own keys and should not be capped.
 
 ### Fixed
+- **A missing Postgres or Redis now fails with an instruction, not a retry storm.**
+  Starting the gateway without its dependencies printed roughly twenty identical
+  `ECONNREFUSED` stack traces followed by an opaque `MaxRetriesPerRequestError`.
+  Startup now checks both dependencies first and prints which one is unreachable, at
+  which host and port, and the command that starts it. Connection URLs are reduced to
+  `host:port` in that message, so a password in `REDIS_URL` or `DATABASE_URL` is never
+  written to stdout. Reconnection errors during normal operation are logged once and
+  then collapsed into a periodic count.
+- **README:** the dashboard is served at `/`, not `/dashboard`, and manual setup now
+  says that Postgres and Redis must be running first.
 - **Opening the dashboard from the filesystem now explains itself.** Its JavaScript is
   ES modules, which a browser refuses to load from a `file://` origin — so
   double-clicking `index.html` rendered the login screen with every button inert and

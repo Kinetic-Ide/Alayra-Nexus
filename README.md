@@ -148,7 +148,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Dashboard is live at `http://localhost:3000/dashboard`
+Dashboard is live at `http://localhost:3000`
 
 ---
 
@@ -168,15 +168,35 @@ cp .env.example .env
 # Generate a secure MASTER_ENCRYPTION_KEY (run this once and save it):
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
+# Postgres and Redis must be running. Don't have them locally? Start just the
+# two dependencies with Compose and run the gateway from source:
+docker compose up -d postgres redis
+
 # Run database migrations
-npx prisma migrate deploy
+npm run migrate
 
 # Start
 npm run dev          # development — hot reload via tsx
 npm run build && npm start   # production
 ```
 
-Dashboard is live at `http://localhost:3000/dashboard`
+Dashboard is live at `http://localhost:3000`
+
+> [!TIP]
+> **`Cannot reach Redis` / `Cannot reach PostgreSQL` on startup?** Both are hard
+> dependencies — Redis holds rate-limit counters, circuit-breaker state, sticky
+> routing, budgets and the response cache; Postgres holds everything else. The
+> startup error names the one that's missing and the command that starts it.
+>
+> To look at the **dashboard alone**, with no database and no gateway, serve it
+> directly and click **Preview demo**:
+>
+> ```bash
+> npx serve frontend
+> ```
+>
+> Opening `frontend/index.html` from your filesystem will not work — browsers refuse
+> to load ES modules from a `file://` origin.
 
 ---
 
@@ -509,7 +529,7 @@ All admin routes require `Authorization: Bearer <ADMIN_PASSWORD>`.
 
 ## Dashboard
 
-The built-in web dashboard (`/dashboard`) gives you full operational control:
+The built-in web dashboard (served at `/`) gives you full operational control:
 
 - **Connect** — server status, endpoint URL, one-click team key generator
 - **Nexus** — provider pool overview with per-key RPM utilization meters; add, test, and ban keys without touching the CLI

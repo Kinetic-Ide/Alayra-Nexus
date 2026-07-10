@@ -11,6 +11,50 @@
 
 ---
 
+**Date:** 2026-07-10 · Session 25  
+**Author:** Abbas  
+**Title:** Startup Diagnostics — Saying What Is Missing  
+
+**Summary:**  
+Starting the gateway without Redis produced about twenty identical connection-refused
+stack traces, each several lines deep, and then terminated with a message about a
+retry limit and an option name. Every fact an operator needed was absent: which
+service was unreachable, at which address, whether it was required, and what to run.
+The gateway was behaving correctly — it depends on Redis and Postgres, and refusing to
+start without them is right — but it was reporting that correctness as though it were
+an internal fault.
+
+Startup now verifies both dependencies before doing any other work, using the same
+clients the application itself uses, so a pass means the configuration is sound rather
+than merely that something is listening on a port. A failure prints one short block:
+the service, the host and port it was looked for at, the underlying reason, the
+command that starts it, and a one-line explanation of what that service holds and why
+it cannot simply be skipped. The stack trace is dropped, because the stack of a
+refused connection describes the network library, not the problem. Genuine internal
+errors keep their stacks.
+
+The address in that message is derived rather than echoed. Connection strings commonly
+carry a password, and a startup failure is written to standard output and swept into
+log aggregation, so the URL is reduced to a host and port before it is printed and an
+unparseable value degrades to a constant rather than being repeated verbatim. That
+property is pinned by tests, since a regression there would leak a credential into
+logs that outlive the process.
+
+Reconnection noise during ordinary operation was addressed at the same time. The
+driver emits an error for every retry, and logging the full object each time buries
+the single line that matters. The first occurrence is now logged as one line, and
+subsequent ones are collapsed into a periodic count.
+
+The message also points anyone who only wants to look at the dashboard toward serving
+it on its own, which needs neither database nor gateway. Two long-standing errors in
+the setup documentation were corrected while the path was being walked: the dashboard
+is served at the root, not under a separate path, and the manual instructions never
+mentioned that the two dependencies had to be running before the server would start.
+
+**Green gate:** lint 0 · typecheck 0 · 158 tests pass (+8) · build 0 · npm audit 0 vulnerabilities.
+
+---
+
 **Date:** 2026-07-10 · Session 24  
 **Author:** Abbas  
 **Title:** Dashboard — Verifying the Preview, and a Regression the Move Introduced  

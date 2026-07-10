@@ -30,6 +30,7 @@ import { getSetting, setSetting } from './services/settings.service';
 import { drainUsage }     from './services/usagePipeline';
 import { metricsText, metricsContentType } from './lib/metrics';
 import { verifyMetricsToken } from './middleware/auth.middleware';
+import { assertDependencies, StartupCheckError } from './services/preflight.service';
 import { randomUUID }     from 'crypto';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
@@ -45,6 +46,9 @@ const ABUSE_RATE_LIMIT_MAX    = parseInt(process.env.ABUSE_RATE_LIMIT_MAX ?? '12
 const ABUSE_RATE_LIMIT_WINDOW = process.env.ABUSE_RATE_LIMIT_WINDOW ?? '1 minute';
 
 async function bootstrap() {
+  // Fail with an instruction, not a retry storm, when Postgres or Redis is missing.
+  await assertDependencies();
+
   // ── Generate API key on first run ────────────────────────────────
   const existing = await getSetting('NEXUS_API_KEY');
   if (!existing || existing === 'REPLACE_ON_INIT') {
@@ -104,7 +108,10 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err) => {
-  console.error('Fatal startup error:', err);
+  // A missing dependency already carries a complete, actionable message; its stack
+  // is noise. Anything else is a real bug and keeps its stack.
+  if (err instanceof StartupCheckError) console.error(err.message);
+  else console.error('Fatal startup error:', err);
   process.exit(1);
 });
 

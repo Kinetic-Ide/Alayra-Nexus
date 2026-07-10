@@ -20,7 +20,35 @@ const REDIS_URL = process.env.REDIS_URL?.trim();
 if (!REDIS_URL) throw new Error('FATAL: REDIS_URL is not set');
 
 export const redis = new Redis(REDIS_URL);
-redis.on('error', (err) => console.error('Redis error', err));
+
+// ── Error logging ─────────────────────────────────────────────────────────────
+// ioredis emits an `error` per reconnection attempt. Logging the full object each
+// time buries the one line an operator needs under twenty identical stack traces.
+// Log the first occurrence, then collapse repeats into a periodic count.
+const ERROR_LOG_INTERVAL_MS = 30_000;
+let lastLoggedAt = 0;
+let suppressedCount = 0;
+let silenced = 0;
+
+/**
+ * Silence the reconnection log while a caller is deliberately probing the
+ * connection (see services/preflight.service.ts) and wants to print its own
+ * message. Returns the function that restores logging. Re-entrant.
+ */
+export function suppressRedisErrorLog(): () => void {
+  silenced++;
+  return () => { silenced = Math.max(0, silenced - 1); };
+}
+
+redis.on('error', (err: Error & { code?: string }) => {
+  if (silenced) return;
+  const now = Date.now();
+  if (now - lastLoggedAt < ERROR_LOG_INTERVAL_MS) { suppressedCount++; return; }
+  const repeats = suppressedCount ? ` (${suppressedCount} more since last message)` : '';
+  lastLoggedAt = now;
+  suppressedCount = 0;
+  console.error(`Redis ${err.code ?? 'error'}: ${err.message}${repeats}`);
+});
 
 export async function setWithExpiry(key: string, value: string, ttlSeconds: number): Promise<void> {
   await redis.set(key, value, 'EX', ttlSeconds);
