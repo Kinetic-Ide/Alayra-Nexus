@@ -7,7 +7,7 @@
 
 ---
 
-## 2026-07-09
+## 2026-07-10
 
 ---
 
@@ -284,6 +284,10 @@ identity rules, the eligibility checks, and the streamed-content assembly (123 t
 total, all green), and documented the feature — including how it differs from cache-
 aware routing — in the README. Semantic caching remains a noted, heavier extension for
 a later phase.
+
+---
+
+## 2026-07-09
 
 ---
 
@@ -631,8 +635,9 @@ being scattered across the pool by least-recently-used rotation. A session is
 identified by an explicit `X-Nexus-Session` header, the OpenAI `user` field, or a
 stable fingerprint of the opening messages, and falls back to normal tier and LRU
 selection for new sessions or when the pinned key is unavailable. The routing
-contract remains a single virtual model (`kinetic-nexus-1`); this decision is now
-documented so early adopters can depend on it.
+contract remains a single virtual model (`kinetic-nexus-1` — the pre-rebrand
+identifier; now `alayra-nexus-1`, which still accepts the old id as an alias); this
+decision is now documented so early adopters can depend on it.
 
 Added unit tests for the breaker escalation curve and thresholds and for the
 session-fingerprinting logic (51 tests total, all green), and documented both the

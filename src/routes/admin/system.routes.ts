@@ -21,7 +21,6 @@ import { getSetting, setSetting } from '../../services/settings.service';
 import { prisma }              from '../../lib/prisma';
 import { randomUUID } from 'crypto';
 import { redis }               from '../../lib/redis';
-import { providerDefaultUrl } from '../../services/nexus.service';
 import { adminGuard }           from './guard';
 
 export default async function adminSystemRoutes(fastify: FastifyInstance) {
@@ -69,26 +68,26 @@ export default async function adminSystemRoutes(fastify: FastifyInstance) {
 
     const now = new Date();
     const tiers = ['premium', 'standard', 'fast'];
-    const status = tiers.map(tier => {
-      const tierProviders = providers.filter(p => p.tier === tier);
-      const totalKeys     = tierProviders.flatMap(p => p.keys).length;
-      const activeKeys    = tierProviders.flatMap(p => p.keys).filter(k =>
-        k.status === 'active' && (!k.coolingUntil || k.coolingUntil <= now)
-      ).length;
-      return {
-        tier,
-        providers: tierProviders.map(p => ({
+    // Counts are per provider. They were previously summed across the whole tier and
+    // then stamped onto every provider in it, so a tier holding two providers showed
+    // each of them the tier's combined total — and the dashboard renders this value
+    // per provider.
+    const isUsable = (k: { status: string; coolingUntil: Date | null }) =>
+      k.status === 'active' && (!k.coolingUntil || k.coolingUntil <= now);
+
+    const status = tiers.map(tier => ({
+      tier,
+      providers: providers
+        .filter(p => p.tier === tier)
+        .map(p => ({
           id:             p.id,
           name:           p.name,
           preferredModel: p.preferredModel,
-          totalKeys,
-          activeKeys,
+          totalKeys:      p.keys.length,
+          activeKeys:     p.keys.filter(isUsable).length,
         })),
-      };
-    });
+    }));
 
-    const defaultBaseUrl = providerDefaultUrl;
-    void defaultBaseUrl;
     return reply.send({ tiers: status });
   });
 

@@ -1,7 +1,7 @@
 // Analytics tab — usage charts, team leaderboard, CSV export.
 // Chart.js is fetched from a CDN on first paint of this tab, not at page load.
 import { GET } from '../api.js';
-import { toast, fmtNum } from '../utils.js';
+import { esc, toast, fmtNum } from '../utils.js';
 
 const CHART_PALETTE = ['#8b5cf6','#3b82f6','#22c55e','#f59e0b','#ef4444','#ec4899','#14b8a6','#f97316','#a78bfa','#60a5fa'];
 let _charts = {};
@@ -100,7 +100,7 @@ async function loadAnalytics(period) {
     ]);
     _analyticsData = { summary, teamTs: teamsTs.series || [], modelTs: modelsTs.series || [], leaderboard: tkData.leaderboard || [] };
     _renderAnalyticsBody(_analyticsData);
-  } catch(e) { el.innerHTML = `<div style="color:var(--red);padding:2rem">${e.message}</div>`; }
+  } catch(e) { el.innerHTML = `<div style="color:var(--red);padding:2rem">${esc(e.message)}</div>`; }
 }
 
 function _renderAnalyticsBody(d) {

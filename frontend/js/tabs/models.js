@@ -21,7 +21,7 @@ async function loadModels() {
     }
     const sorted = [...state.modelRegistry].sort((a,b) => (a.priority||99)-(b.priority||99));
     el.innerHTML = sorted.map(m => renderModelCard(m)).join('');
-  } catch(e) { el.innerHTML = `<div style="color:var(--red)">${e.message}</div>`; }
+  } catch(e) { el.innerHTML = `<div style="color:var(--red)">${esc(e.message)}</div>`; }
 }
 
 // Escape user-controlled values before they are inserted via innerHTML, so a

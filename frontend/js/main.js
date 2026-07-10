@@ -24,9 +24,10 @@ import * as settings                from './tabs/settings.js';
 Object.assign(window, {
   doLogin, doLogout: logout, enterDemoMode, showTab, copyText, closeModal,
 
+  // Provider-card actions (toggle / add-key / edit / delete) are NOT here: they run
+  // through a delegated listener in tabs/pools.js, which is where the rest of these
+  // are headed as the redesign lands.
   loadNexus: pools.loadNexus,
-  toggleProviderBody: pools.toggleProviderBody,
-  deleteProvider: pools.deleteProvider,
   deleteKey: pools.deleteKey,
   banKey: pools.banKey,
   unbanKey: pools.unbanKey,
@@ -35,9 +36,7 @@ Object.assign(window, {
   fillProviderDefaults: pools.fillProviderDefaults,
   testNewProvider: pools.testNewProvider,
   submitAddProvider: pools.submitAddProvider,
-  showAddKey: pools.showAddKey,
   submitAddKey: pools.submitAddKey,
-  showEditProvider: pools.showEditProvider,
   testEditModel: pools.testEditModel,
   submitEditProvider: pools.submitEditProvider,
 

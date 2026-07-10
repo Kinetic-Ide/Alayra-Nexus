@@ -30,42 +30,65 @@ async function loadNexus() {
 
     listEl.innerHTML = providers.map(p => renderProviderCard(p)).join('');
     providers.forEach(p => loadKeysForProvider(p.id));
-  } catch(e) { listEl.innerHTML = `<div style="color:var(--red)">${e.message}</div>`; }
+  } catch(e) { listEl.innerHTML = `<div style="color:var(--red)">${esc(e.message)}</div>`; }
 }
 
 
 function tierBadge(tier) {
   const map = { premium:'badge-yellow', standard:'badge-purple', fast:'badge-green' };
-  return `<span class="badge ${map[tier]||'badge-gray'}" style="text-transform:capitalize">${tier}</span>`;
+  return `<span class="badge ${map[tier]||'badge-gray'}" style="text-transform:capitalize">${esc(tier || '')}</span>`;
 }
 
+// Provider ids and names reach the DOM through `data-` attributes, never through an
+// inline handler's argument list.
+//
+// `esc()` is HTML escaping, and HTML escaping does not protect a JavaScript string
+// context: the browser HTML-decodes an attribute *before* parsing its contents as
+// code, so `esc("O'Reilly")` becomes `O&#39;Reilly`, decodes back to `O'Reilly`, and
+// closes the string literal in `onclick="deleteProvider('...')"`. A `data-` attribute
+// is never parsed as code, so the value stays inert whatever it contains.
 function renderProviderCard(p) {
-  const dot = PROVIDER_COLORS[p.provider] || 'provider-dot-custom';
-  const lbl = PROVIDER_LABELS[p.provider] || p.provider;
-  return `<div class="provider-card" id="pcard-${p.id}">
-    <div class="provider-card-header" onclick="toggleProviderBody('${p.id}')">
+  const dot  = PROVIDER_COLORS[p.provider] || 'provider-dot-custom';
+  const lbl  = PROVIDER_LABELS[p.provider] || p.provider;
+  const id   = esc(p.id);
+  const name = esc(p.name || '');
+  return `<div class="provider-card" id="pcard-${id}">
+    <div class="provider-card-header" data-pool-action="toggle" data-pool-id="${id}">
       <div class="provider-dot ${dot}"></div>
       <div style="flex:1;min-width:0">
         <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-weight:600;font-size:14px">${p.name}</span>
-          <span class="badge badge-gray" style="font-size:10px">${lbl}</span>
+          <span style="font-weight:600;font-size:14px">${name}</span>
+          <span class="badge badge-gray" style="font-size:10px">${esc(lbl || '')}</span>
           ${tierBadge(p.tier)}
         </div>
         <div style="font-family:monospace;font-size:12px;color:${p.preferredModel?'var(--muted)':'var(--red)'}">
-          ${p.preferredModel||'⚠ No preferred model set'}
+          ${p.preferredModel ? esc(p.preferredModel) : '⚠ No preferred model set'}
         </div>
       </div>
       <div style="display:flex;gap:6px;flex-shrink:0">
-        <button class="btn-icon btn-sm" onclick="event.stopPropagation();showAddKey('${p.id}','${p.name}')">+ Key</button>
-        <button class="btn-icon btn-sm" onclick="event.stopPropagation();showEditProvider('${p.id}')">Edit</button>
-        <button class="btn-danger btn-sm" onclick="event.stopPropagation();deleteProvider('${p.id}','${p.name}')">Delete</button>
+        <button class="btn-icon btn-sm" data-pool-action="add-key" data-pool-id="${id}" data-pool-name="${name}">+ Key</button>
+        <button class="btn-icon btn-sm" data-pool-action="edit" data-pool-id="${id}">Edit</button>
+        <button class="btn-danger btn-sm" data-pool-action="delete" data-pool-id="${id}" data-pool-name="${name}">Delete</button>
       </div>
     </div>
-    <div class="provider-card-body" id="pbody-${p.id}">
-      <div id="keys-${p.id}"><div class="loader"></div></div>
+    <div class="provider-card-body" id="pbody-${id}">
+      <div id="keys-${id}"><div class="loader"></div></div>
     </div>
   </div>`;
 }
+
+// One delegated listener serves every provider card, present and future. A click on
+// an action button must not also collapse the card behind it, so the header toggles
+// only when the click did not land on a button.
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-pool-action]');
+  if (!el) return;
+  const { poolAction, poolId, poolName } = el.dataset;
+  if (poolAction === 'toggle')  { if (!e.target.closest('button')) toggleProviderBody(poolId); return; }
+  if (poolAction === 'add-key') return showAddKey(poolId, poolName);
+  if (poolAction === 'edit')    return showEditProvider(poolId);
+  if (poolAction === 'delete')  return deleteProvider(poolId, poolName);
+});
 
 function toggleProviderBody(id) {
   const body = document.getElementById('pbody-'+id);
@@ -108,7 +131,7 @@ async function loadKeysForProvider(providerId) {
       </tr>`).join('')}</tbody>
     </table></div>`;
     keys.forEach(k => pollKeyMetrics(k.id, k.rpmLimit));
-  } catch(e) { el.innerHTML = `<div style="color:var(--red);font-size:12px">${e.message}</div>`; }
+  } catch(e) { el.innerHTML = `<div style="color:var(--red);font-size:12px">${esc(e.message)}</div>`; }
 }
 
 function keyStatusBadge(k) {
@@ -281,7 +304,7 @@ async function testNewProvider() {
     el.innerHTML = r.ok
       ? `<span class="val-status val-ok">✓ Connected (${r.latencyMs}ms)</span>`
       : `<span class="val-status val-err">✗ ${r.error}</span>`;
-  } catch(e) { el.innerHTML = `<span class="val-status val-err">✗ ${e.message}</span>`; }
+  } catch(e) { el.innerHTML = `<span class="val-status val-err">✗ ${esc(e.message)}</span>`; }
 }
 
 async function submitAddProvider() {
@@ -371,14 +394,14 @@ async function showEditProvider(id) {
   if (!p) return;
   document.getElementById('modal-box').innerHTML = `
     <button class="modal-close" onclick="closeModal()">×</button>
-    <div class="modal-title">Edit pool — ${p.name}</div>
+    <div class="modal-title">Edit pool — ${esc(p.name || '')}</div>
     <div class="form-row">
       <label class="form-label">Display name</label>
-      <input id="edit-name" value="${p.name}"/>
+      <input id="edit-name" value="${esc(p.name || '')}"/>
     </div>
     <div class="form-row">
       <label class="form-label">Preferred model</label>
-      <input id="edit-model" value="${p.preferredModel||''}" placeholder="e.g. claude-3-5-sonnet-20241022"/>
+      <input id="edit-model" value="${esc(p.preferredModel || '')}" placeholder="e.g. claude-3-5-sonnet-20241022"/>
     </div>
     <div class="form-row">
       <label class="form-label">Tier</label>
@@ -390,16 +413,16 @@ async function showEditProvider(id) {
     </div>
     <div class="form-row">
       <label class="form-label">Base URL</label>
-      <input id="edit-base-url" value="${p.baseUrl||''}"/>
+      <input id="edit-base-url" value="${esc(p.baseUrl || '')}"/>
     </div>
     <div class="form-grid">
       <div class="form-row">
         <label class="form-label">Auth header</label>
-        <input id="edit-auth-header" value="${p.authHeader||'Authorization'}"/>
+        <input id="edit-auth-header" value="${esc(p.authHeader || 'Authorization')}"/>
       </div>
       <div class="form-row">
         <label class="form-label">Auth prefix</label>
-        <input id="edit-auth-prefix" value="${p.authPrefix||''}" placeholder="Bearer"/>
+        <input id="edit-auth-prefix" value="${esc(p.authPrefix || '')}" placeholder="Bearer"/>
       </div>
     </div>
     <div class="val-row" id="edit-val-status"></div>
@@ -419,7 +442,7 @@ async function testEditModel(providerId) {
   try {
     const r = await POST('/admin/validate/model', { providerId, modelName: model });
     el.innerHTML = r.ok ? `<span class="val-status val-ok">✓ (${r.latencyMs}ms)</span>` : `<span class="val-status val-err">✗ ${r.error}</span>`;
-  } catch(e) { el.innerHTML = `<span class="val-status val-err">✗ ${e.message}</span>`; }
+  } catch(e) { el.innerHTML = `<span class="val-status val-err">✗ ${esc(e.message)}</span>`; }
 }
 
 async function submitEditProvider(id) {
@@ -441,4 +464,6 @@ export {
   banKey, unbanKey, testProvKey, showAddProvider, fillProviderDefaults,
   testNewProvider, submitAddProvider, showAddKey, submitAddKey,
   showEditProvider, testEditModel, submitEditProvider,
+  // Pure render helpers, exported so their escaping can be exercised directly.
+  renderProviderCard, tierBadge,
 };
