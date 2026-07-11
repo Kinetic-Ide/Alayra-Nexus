@@ -10,7 +10,7 @@
   border-right: 1px solid var(--border);
 }
 .brand { display: flex; align-items: center; gap: 9px; padding: 6px 10px 18px; }
-.brandMark { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; background: linear-gradient(135deg, var(--accent), var(--blue)); color: #fff; flex-shrink: 0; }
+.brandMark { width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0; display: block; box-shadow: var(--shadow-sm); }
 .brandText { font-weight: 700; font-size: 15px; letter-spacing: -.01em; }
 .brandBy { font-size: 10px; color: var(--subtle); }
 

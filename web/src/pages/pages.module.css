@@ -4,7 +4,8 @@
 .section { margin-top: 22px; }
 
 .chartCard { display: flex; flex-direction: column; gap: 4px; }
-.chartHead { display: flex; align-items: baseline; justify-content: space-between; }
+.chartHead { display: flex; align-items: center; gap: 9px; }
+.chartTick { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
 .chartBig { font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
 
 .scaffold { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
@@ -38,6 +39,8 @@
 .tierHeading { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin-bottom: 12px; }
 .poolGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
 .poolHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.poolHeadActions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.emptyCta { display: flex; justify-content: center; margin-top: 6px; }
 .poolName { font-size: 15px; font-weight: 650; }
 .poolSub { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
 .poolModel { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }

@@ -7,6 +7,51 @@
 
 ---
 
+## 2026-07-12
+
+---
+
+**Date:** 2026-07-12 · Session 43  
+**Author:** Abbas  
+**Title:** Phase 7.4a — Nexus key management restored, the brand mark, and charts made truly alive  
+
+**Summary:**  
+This session began with a careful audit of the redesigned console against a set of requests, and
+then closed the most visible gaps. Three things shipped.
+
+First, **the Nexus section can once again be managed, not just viewed.** The rebuild had, for a
+time, left it read-only. It now has a clear **Add provider** action for creating a new pool of
+upstream credentials, an **Add key** action on every pool for adding an API key to it (with its
+per-minute and per-token rate limits), and controls to remove a key or an entire pool. Keys are
+encrypted before they are stored and are only ever shown masked. The existing one-click test,
+rest, block, and restore controls remain. In short, an operator can now set the gateway up
+end-to-end from the new console.
+
+Second, **the product now wears its own identity.** The Alayra Nexus mark — the cyan gem — appears
+in the sidebar and as the browser tab icon, replacing the placeholder that was there before.
+
+Third, **the charts were taken from “better” to genuinely alive.** A faint horizontal line that
+had lingered along the bottom of the charts in the dark theme is gone — it was a side-effect of how
+the shaded area was drawn, and the fill now fades away cleanly in both light and dark. Each of the
+four trend charts, and its matching headline figure, now carries its own persistent colour — input
+tokens in blue, output in violet, requests in green, cost in amber — so the eye can tell them apart
+at a glance. And hovering any chart no longer shows just that one line’s value: it now reveals the
+whole day at once — the date, the number of requests, the input and output tokens, and the cost —
+each on its own colour-coded row, so the story behind any point is right there. The line also draws
+itself fully across on first paint, and all of this steps aside politely for anyone who prefers
+reduced motion.
+
+Alongside the build, a broader direction was agreed for the sections still to come — folding the
+model catalogue into Nexus so a pool carries its own models and limits, a company-wide budgeting
+system with per-team allowances and threshold alerts, an on-demand benchmarking report, a server
+and datastore health view, and surfacing the savings the response cache already delivers. These are
+sequenced across the next several sub-phases and recorded so nothing is lost.
+
+Everything shipped this session was checked end-to-end in a live browser, in both themes, with no
+errors, and both the gateway and the dashboard pass their full quality gates.
+
+---
+
 ## 2026-07-11
 
 ---

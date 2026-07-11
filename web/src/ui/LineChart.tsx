@@ -1,12 +1,18 @@
+import type { ComponentChildren } from 'preact';
 import { useRef, useState } from 'preact/hooks';
 import s from './ui.module.css';
 
 interface Props {
   data:       number[];
-  /** Optional per-point labels (e.g. dates) shown in the hover tooltip. */
+  /** Optional per-point labels (e.g. dates) shown in the default hover tooltip. */
   labels?:    string[];
   /** How a value is rendered in the tooltip (compact number, currency, …). */
   format?:    (v: number) => string;
+  /** A CSS colour for this series' line/fill/dot — lets sibling charts read as distinct metrics.
+   *  Defaults to the accent. Pass a token, e.g. `var(--blue)`. */
+  accent?:    string;
+  /** Rich tooltip: given the hovered index, render the tooltip body. Overrides label+value. */
+  tooltip?:   (i: number) => ComponentChildren;
   height?:    number;
   ariaLabel?: string;
 }
@@ -19,27 +25,36 @@ let gradSeq = 0;
  * this is self-contained (the old dashboard's CDN-loaded Chart.js broke air-gapped / strict-CSP
  * installs), reads its colours from CSS tokens, and stretches to its container.
  *
- * It is interactive: hovering shows a crosshair, a highlighted point, and a tooltip with that
- * day's label and value, and the line draws itself in on first paint — so the data feels live, not
- * static. The overlay is positioned in percentages (robust to the stretched viewBox) and rendered
- * as HTML so a dot stays circular despite `preserveAspectRatio="none"`.
+ * It is interactive: hovering shows a crosshair, a highlighted point, and a tooltip, and the line
+ * draws itself in on first paint — so the data feels live, not static. The overlay is positioned in
+ * percentages (robust to the stretched viewBox) and rendered as HTML so a dot stays circular
+ * despite `preserveAspectRatio="none"`.
  *
- * The area is filled with a vertical gradient that fades to transparent at the bottom rather than a
- * flat translucency, which would leave a hard bottom edge reading as a faint line over the dark
- * surface. The line stroke already covers the top edge, so the fill just dissolves downward.
+ * The area is filled with a vertical gradient in **user space** spanning the full chart height, so it
+ * always fades cleanly from the line down to transparent regardless of the data's shape. (An
+ * object-bounding-box gradient collapses onto a near-flat series, compressing the fade into a thin
+ * band that reads as a faint horizontal line over a dark surface — the artefact this avoids.)
+ *
+ * `accent` recolours the whole series via a CSS custom property, so four charts on one page can each
+ * carry their own hue while sharing this one component.
  */
-export function LineChart({ data, labels, format = (v) => String(v), height = 120, ariaLabel = 'Line chart' }: Props) {
+export function LineChart({
+  data, labels, format = (v) => String(v), accent, tooltip, height = 120, ariaLabel = 'Line chart',
+}: Props) {
   const W = 320;
   const H = height;
   const P = 6;
   const gradId = useRef(`nx-chart-fill-${gradSeq++}`).current;
   const [hover, setHover] = useState<number | null>(null);
+  const style = accent ? ({ '--chart-accent': accent } as Record<string, string>) : undefined;
 
   if (!data.length) {
     return (
-      <svg class={s.chart} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={ariaLabel} preserveAspectRatio="none">
-        <text x={W / 2} y={H / 2} text-anchor="middle" dominant-baseline="middle" class={s.chartEmpty}>No data yet</text>
-      </svg>
+      <div class={s.chartWrap} style={style}>
+        <svg class={s.chart} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={ariaLabel} preserveAspectRatio="none">
+          <text x={W / 2} y={H / 2} text-anchor="middle" dominant-baseline="middle" class={s.chartEmpty}>No data yet</text>
+        </svg>
+      </div>
     );
   }
 
@@ -67,15 +82,15 @@ export function LineChart({ data, labels, format = (v) => String(v), height = 12
     setHover(Math.min(n - 1, Math.max(0, i)));
   };
 
-  const tipLeft = Math.min(88, Math.max(12, leftPct(hover ?? 0))); // keep the tooltip off the edges
+  const tipLeft = Math.min(86, Math.max(14, leftPct(hover ?? 0))); // keep the tooltip off the edges
 
   return (
-    <div class={s.chartWrap} onPointerMove={onMove} onPointerLeave={() => setHover(null)}>
+    <div class={s.chartWrap} style={style} onPointerMove={onMove} onPointerLeave={() => setHover(null)}>
       <svg class={s.chart} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={ariaLabel} preserveAspectRatio="none">
         <defs>
-          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%"   stop-color="var(--accent)" stop-opacity="0.22" />
-            <stop offset="100%" stop-color="var(--accent)" stop-opacity="0" />
+          <linearGradient id={gradId} gradientUnits="userSpaceOnUse" x1="0" y1={P} x2="0" y2={H}>
+            <stop offset="0%"   stop-color="var(--chart-accent, var(--accent))" stop-opacity="0.24" />
+            <stop offset="100%" stop-color="var(--chart-accent, var(--accent))" stop-opacity="0" />
           </linearGradient>
         </defs>
         <path class={s.chartFill} d={area} fill={`url(#${gradId})`} />
@@ -86,8 +101,12 @@ export function LineChart({ data, labels, format = (v) => String(v), height = 12
           <span class={s.chartCrosshair} style={{ left: `${leftPct(hover)}%` }} />
           <span class={s.chartHoverDot} style={{ left: `${leftPct(hover)}%`, top: `${topPct(data[hover])}%` }} />
           <span class={s.chartTip} style={{ left: `${tipLeft}%`, top: `${topPct(data[hover])}%` }}>
-            {labels?.[hover] && <b>{labels[hover]}</b>}
-            <span>{format(data[hover])}</span>
+            {tooltip
+              ? tooltip(hover)
+              : <>
+                  {labels?.[hover] && <b>{labels[hover]}</b>}
+                  <span>{format(data[hover])}</span>
+                </>}
           </span>
         </>
       )}

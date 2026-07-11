@@ -8,16 +8,18 @@ interface Props {
   value: ComponentChildren;
   sub?: ComponentChildren;
   icon?: ComponentChildren;
+  /** A CSS colour for the icon — a small, persistent cue tying a stat to its chart's hue. */
+  tone?: string;
   /** Making a card clickable deep-links it to its section (the Overview brief). */
   href?: string;
   onClick?: () => void;
 }
 
-export function StatCard({ label, value, sub, icon, href, onClick }: Props) {
+export function StatCard({ label, value, sub, icon, tone, href, onClick }: Props) {
   const clickable = !!(href || onClick);
   const body = (
     <>
-      <div class={s.statLabel}>{icon && <span class={s.statIcon}>{icon}</span>}{label}</div>
+      <div class={s.statLabel}>{icon && <span class={s.statIcon} style={tone ? { color: tone } : undefined}>{icon}</span>}{label}</div>
       <div class={s.statValue}>{value}</div>
       {sub && <div class={s.statSub}>{sub}</div>}
       {clickable && <span class={s.statArrow}><ArrowUpRight size={15} /></span>}

@@ -1,6 +1,5 @@
 import { useLocation } from 'preact-iso';
 import { clsx } from 'clsx';
-import { Zap } from 'lucide-preact';
 import { SECTIONS, sectionByPath, type Section } from '../nav';
 import s from './shell.module.css';
 
@@ -27,7 +26,7 @@ export function Sidebar() {
   return (
     <aside class={s.sidebar}>
       <a href="/" class={s.brand} aria-label="Alayra Nexus — Overview">
-        <span class={s.brandMark}><Zap size={16} /></span>
+        <img class={s.brandMark} src="/logo.svg" width="26" height="26" alt="" />
         <span>
           <div class={s.brandText}>Alayra Nexus</div>
           <div class={s.brandBy}>by Alayra Systems</div>

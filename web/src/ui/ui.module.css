@@ -91,6 +91,30 @@
 }
 .codeCopy:hover { color: var(--text); border-color: var(--border-strong); }
 
+/* ── Modal ── */
+.modalOverlay { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 24px; background: rgba(0, 0, 0, .5); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); animation: nxFade .15s var(--ease); }
+.modal { width: 100%; max-width: 470px; max-height: 88vh; overflow-y: auto; background: var(--surface-solid); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); animation: nxRise .2s var(--ease); }
+.modalHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface-solid); }
+.modalTitle { font-size: 15px; font-weight: 650; }
+.modalClose { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-sm); border: none; background: transparent; color: var(--muted); cursor: pointer; }
+.modalClose:hover { background: var(--surface-2); color: var(--text); }
+.modalBody { padding: 18px; }
+.modalFoot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--border); }
+@keyframes nxFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes nxRise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .modalOverlay, .modal { animation: none; } }
+
+/* ── Form field ── */
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.fieldLabel { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); font-weight: 600; display: flex; justify-content: space-between; gap: 8px; }
+.fieldHint { text-transform: none; letter-spacing: 0; color: var(--subtle); font-weight: 500; }
+.input { width: 100%; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 11px; font-size: 13px; color: var(--text); font-family: inherit; transition: border-color .13s var(--ease); }
+.input:focus { outline: none; border-color: var(--accent); }
+.input::placeholder { color: var(--subtle); }
+.formRow { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.formError { color: var(--red); font-size: 12.5px; margin-bottom: 12px; background: var(--red-bg); padding: 8px 11px; border-radius: var(--radius-sm); }
+.formNote { color: var(--muted); font-size: 12px; margin-bottom: 12px; line-height: 1.5; }
+
 /* ── Empty state ── */
 .empty { text-align: center; padding: 44px 16px; color: var(--muted); }
 .emptyIcon { color: var(--subtle); margin-bottom: 10px; display: inline-flex; }
@@ -119,26 +143,38 @@
    transparent at the bottom; a flat `fill` here would override it and bring back the hard edge. */
 .chartFill { animation: nxChartRise .7s var(--ease) both; }
 .chartLine {
-  fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round;
+  fill: none; stroke: var(--chart-accent, var(--accent)); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round;
   stroke-dasharray: 1;               /* with pathLength=1, one dash spans the whole line … */
-  animation: nxChartDraw .9s var(--ease) both;  /* … so we can draw it in on first paint */
+  animation: nxChartDraw 1s var(--ease) forwards;  /* … so we can draw it in on first paint, then hold it fully drawn */
 }
 .chartEmpty { fill: var(--muted); font-size: 12px; }
 
 @keyframes nxChartDraw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
 @keyframes nxChartRise { from { opacity: 0; } to { opacity: 1; } }
 
+/* Respect reduced-motion: show the finished chart immediately, no draw-in. */
+@media (prefers-reduced-motion: reduce) {
+  .chartFill { animation: none; }
+  .chartLine { animation: none; stroke-dashoffset: 0; }
+}
+
 /* Hover overlay (percent-positioned, HTML so the dot stays circular over the stretched SVG). */
-.chartCrosshair { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border-strong); transform: translateX(-0.5px); pointer-events: none; }
+.chartCrosshair { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--chart-accent, var(--accent)); opacity: .35; transform: translateX(-0.5px); pointer-events: none; }
 .chartHoverDot {
   position: absolute; width: 9px; height: 9px; border-radius: 50%;
-  background: var(--accent); border: 2px solid var(--bg); box-shadow: 0 0 0 3px var(--accent-bg);
+  background: var(--chart-accent, var(--accent)); border: 2px solid var(--surface-solid); box-shadow: 0 0 0 3px var(--surface-2);
   transform: translate(-50%, -50%); pointer-events: none;
 }
 .chartTip {
   position: absolute; transform: translate(-50%, calc(-100% - 12px)); pointer-events: none; z-index: 5;
-  display: flex; flex-direction: column; gap: 1px; white-space: nowrap;
+  display: flex; flex-direction: column; gap: 2px; white-space: nowrap; min-width: 118px;
   background: var(--surface-solid); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 5px 9px; box-shadow: var(--shadow); font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums;
+  padding: 7px 10px; box-shadow: var(--shadow); font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums;
 }
 .chartTip b { color: var(--muted); font-weight: 600; font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase; }
+/* Rich tooltip: one label/value row per metric, the hovered chart's own metric marked with its dot. */
+.chartTipRow { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.chartTipRow span:first-child { color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.chartTipRow span:last-child { font-weight: 600; }
+.chartTipDot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.chartTipRowActive span:first-child { color: var(--text); }

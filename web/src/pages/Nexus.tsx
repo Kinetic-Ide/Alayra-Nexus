@@ -1,10 +1,12 @@
-import { Boxes, KeyRound, Snowflake, Ban } from 'lucide-preact';
+import { useState } from 'preact/hooks';
+import { Boxes, KeyRound, Snowflake, Ban, Plus } from 'lucide-preact';
 import { PageHeader, StatCard, Spinner, Button, EmptyState } from '../ui';
 import { useApi } from '../hooks/useApi';
 import { compactNumber } from '../lib/format';
 import type { NexusOverview } from '../api';
 import { RoutingRules } from './nexus/RoutingRules';
 import { PoolCard } from './nexus/PoolCard';
+import { AddProviderDialog } from './nexus/AddProviderDialog';
 import s from './pages.module.css';
 
 const TIER_LABEL: Record<string, string> = { premium: 'Premium tier', standard: 'Standard tier', fast: 'Fast tier' };
@@ -13,6 +15,7 @@ const TIER_LABEL: Record<string, string> = { premium: 'Premium tier', standard: 
 // each key's live health with operator actions, and an honest description of the routing rules.
 export function Nexus() {
   const { data, loading, error, reload } = useApi<NexusOverview>('/admin/nexus/overview');
+  const [adding, setAdding] = useState(false);
 
   if (loading && !data) {
     return (
@@ -40,7 +43,11 @@ export function Nexus() {
 
   return (
     <>
-      <PageHeader title="Nexus" subtitle="Provider pools & routing" />
+      <PageHeader
+        title="Nexus"
+        subtitle="Provider pools & routing"
+        actions={<Button variant="primary" size="sm" onClick={() => setAdding(true)}><Plus size={15} /> Add provider</Button>}
+      />
 
       <div class={`${s.grid} ${s.cols4}`}>
         <StatCard label="Providers"    value={compactNumber(summary.providers)}   icon={<Boxes size={14} />} sub="pools configured" />
@@ -52,7 +59,10 @@ export function Nexus() {
       <div class={s.section}><RoutingRules costWeight={routing.costWeight} /></div>
 
       {tiers.length === 0 ? (
-        <div class={s.section}><EmptyState icon={<Boxes size={22} />}>No provider pools yet. Add one to start routing.</EmptyState></div>
+        <div class={s.section}>
+          <EmptyState icon={<Boxes size={22} />}>No provider pools yet. Add one to start routing.</EmptyState>
+          <div class={s.emptyCta}><Button variant="primary" size="sm" onClick={() => setAdding(true)}><Plus size={15} /> Add provider</Button></div>
+        </div>
       ) : (
         tiers.map((group) => (
           <div key={group.tier} class={s.section}>
@@ -63,6 +73,8 @@ export function Nexus() {
           </div>
         ))
       )}
+
+      {adding && <AddProviderDialog onClose={() => setAdding(false)} onCreated={reload} />}
     </>
   );
 }

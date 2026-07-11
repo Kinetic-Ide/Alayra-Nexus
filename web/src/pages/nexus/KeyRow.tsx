@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { POST, type NexusKeyHealth } from '../../api';
+import { POST, DEL, type NexusKeyHealth } from '../../api';
 import { Badge, Button } from '../../ui';
 import { relativeTime } from '../../lib/format';
 import s from '../pages.module.css';
@@ -20,13 +20,17 @@ export function KeyRow({ k, onChanged }: { k: NexusKeyHealth; onChanged: () => v
   const [probe, setProbe] = useState<string | null>(null);
   const h = health(k);
 
-  const run = async (action: 'ban' | 'unban' | 'cool' | 'test') => {
+  const run = async (action: 'ban' | 'unban' | 'cool' | 'test' | 'delete') => {
+    if (action === 'delete' && !confirm('Delete this key permanently?')) return;
     setBusy(action);
     setProbe(null);
     try {
       if (action === 'test') {
         const r = await POST<{ ok: boolean; latencyMs?: number; status?: number; error?: string }>(`/admin/keys/${k.id}/test`);
         setProbe(r.ok ? `Reachable${r.latencyMs != null ? ` · ${r.latencyMs}ms` : ''}` : `Failed${r.status ? ` · ${r.status}` : ''}`);
+      } else if (action === 'delete') {
+        await DEL(`/admin/keys/${k.id}`);
+        onChanged();
       } else {
         await POST(`/admin/keys/${k.id}/${action}`);
         onChanged();
@@ -54,7 +58,8 @@ export function KeyRow({ k, onChanged }: { k: NexusKeyHealth; onChanged: () => v
         <Button size="sm" variant="ghost" onClick={() => run('test')} disabled={busy !== null}>Test</Button>
         {!h.banned && !h.cooling && <Button size="sm" variant="ghost" onClick={() => run('cool')} disabled={busy !== null}>Cool</Button>}
         {(h.banned || h.cooling) && <Button size="sm" variant="ghost" onClick={() => run('unban')} disabled={busy !== null}>Restore</Button>}
-        {!h.banned && <Button size="sm" variant="danger" onClick={() => run('ban')} disabled={busy !== null}>Ban</Button>}
+        {!h.banned && <Button size="sm" variant="ghost" onClick={() => run('ban')} disabled={busy !== null}>Ban</Button>}
+        <Button size="sm" variant="danger" onClick={() => run('delete')} disabled={busy !== null}>Delete</Button>
       </div>
     </div>
   );
