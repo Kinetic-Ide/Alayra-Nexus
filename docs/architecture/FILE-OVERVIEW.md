@@ -18,6 +18,7 @@ for the layering rule and the request path.
 | `responseCache.ts` | Exact-match cache key, entry shape, and SSE↔JSON replay conversion |
 | `guardrails.ts` | Rule compilation and block/redact evaluation over messages and output |
 | `tokenizer.ts` | `js-tiktoken` token counting and the pre-admission reserve estimate |
+| `notify.ts` | Operator-notification pure core: event catalogue, config normalization, per-event message text, and the coalescing key |
 | `url.ts` | SSRF: `assertSafeUrl`, `isPrivateHost` |
 | `encryption.ts` | AES-256-GCM encrypt/decrypt and key masking |
 | `timingSafe.ts` | `safeEqual` — constant-time secret comparison, length-safe |
@@ -44,6 +45,7 @@ for the layering rule and the request path.
 | `settings.service.ts` | Settings read/write with a Redis cache |
 | `ssrf.service.ts`, `guardrails.service.ts`, `routing.service.ts`, `cache.service.ts` | Feature config: settings + env, off/neutral by default |
 | `model.service.ts` | The model registry and its cache |
+| `notifications.service.ts` | Notification config (encrypted Resend key) + delivery: one email/webhook per event per window, fire-and-forget, off the request path |
 
 ## `src/routes/` — HTTP surface
 
@@ -54,7 +56,7 @@ for the layering rule and the request path.
 | `admin/guard.ts` | `adminGuard` — the single place admin auth is applied |
 | `admin/auth.routes.ts` | `/admin/login` (the one unguarded admin route), TOTP, recovery codes, API tokens |
 | `admin/system.routes.ts` | Dashboard config, health, API-key management, routing status, cache bust |
-| `admin/settings.routes.ts` | SSRF, guardrails, cost routing, response cache, raw settings |
+| `admin/settings.routes.ts` | SSRF, guardrails, cost routing, response cache, notifications, raw settings |
 | `admin/providers.routes.ts` | Provider pools; credential and model validation probes |
 | `admin/keys.routes.ts` | Provider keys: create (incl. BYOK owner), ban, unban, cool, test, live RPM |
 | `admin/models.routes.ts` | The model registry |
@@ -78,7 +80,7 @@ for the layering rule and the request path.
 | `tabs/models.js` | Model registry editor |
 | `tabs/team.js` | Team access keys |
 | `tabs/analytics.js` | Charts, leaderboard, CSV export (Chart.js loaded on first paint) |
-| `tabs/settings.js` | The five settings cards |
+| `tabs/settings.js` | The settings cards (SSRF, guardrails, cost routing, response cache, notifications) |
 
 ## Adding a feature
 

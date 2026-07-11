@@ -77,6 +77,7 @@ vi.mock('./model.service',   () => ({
   activeProviderSlugs: vi.fn(async () => new Set(state.providers.map(p => p.provider as string))),
 }));
 vi.mock('./ssrf.service',    () => ({ getSsrfPolicy: vi.fn(async () => ({})) }));
+vi.mock('./notifications.service', () => ({ notificationsArmed: vi.fn(async () => false), notify: vi.fn(async () => {}) }));
 
 import { discoverBestPool, SHARED_SCOPE } from './nexus.service';
 import { getStickyKeyId } from '../lib/sticky';

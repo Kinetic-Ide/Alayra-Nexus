@@ -11,6 +11,54 @@
 
 ---
 
+**Date:** 2026-07-11 · Session 33  
+**Author:** Abbas  
+**Title:** Phase 6.4 — Operator Notifications  
+
+**Summary:**  
+Until now the gateway kept its troubles to itself. When a provider key died, when an
+upstream began failing hard enough to be set aside, when someone hammered the admin login
+until it locked — all of it was visible, but only to an operator who happened to be
+looking at the dashboard. A gateway that quietly degrades while no one watches is doing
+half its job. This phase gives it a voice: it can now reach out when something goes wrong.
+
+The design followed the same rule every optional feature here has followed. It is off
+until an operator turns it on, it is configured from a single card in the settings, and
+the credential it needs — an email provider's key — is held under the same encryption as
+every provider credential, never written in the clear and never shown again once saved,
+only ever masked. Two channels are offered and either or both may be used: email through a
+free provider, and a plain web address that a chat tool or a pager service can receive, so
+an alert can land wherever the operator already looks.
+
+The discipline that mattered most was keeping all of this away from the work the gateway
+actually does. A request being proxied must never wait on an email, and must never fail
+because one could not be sent; sending is entirely detached, and a delivery that hangs or
+errors changes nothing a caller can see. The second concern was quiet. A failing key does
+not fail once — it can fail hundreds of times a minute, and a naive design would answer
+each with its own message until the inbox was the outage. So each kind of alert is sent at
+most once within a window, claimed with a single atomic marker that every other occurrence
+in that window sees and stands down for. A storm becomes one message.
+
+Three situations were wired to it, chosen because each is a moment the gateway already
+recognizes cleanly and none of them sit on the path of a normal request: a key being
+automatically banned after repeated rejection, a breaker opening after repeated upstream
+failures, and the admin login locking out after repeated bad attempts — degradation,
+outage, and intrusion, one of each. Two further alerts that would be valuable — warning as
+a team nears its spending cap, and warning when a whole tier has no key left to serve a
+request — were deliberately left for the next step, because both must be measured on the
+path of a live request rather than at a quiet failure point, and that instrumentation
+deserves to be done carefully and uniformly rather than bolted on here.
+
+The engine is proven by tests at both halves: the pure part — how a stored configuration
+is made sane, how each message reads, how an occurrence is keyed — and the moving part —
+that a configured alert sends by both channels, that a repeat inside the window sends
+nothing, that a disabled feature and an unconfigured channel and a failed send all pass
+quietly, and that the saved key is encrypted at rest and never handed back.
+
+**Green gate:** lint 0 · typecheck 0 · 319 tests pass (+14) · build 0 · npm audit 0 vulnerabilities.
+
+---
+
 **Date:** 2026-07-11 · Session 32  
 **Author:** Abbas  
 **Title:** Phase 6.3d — Speech-to-Text, and Per-Modality Pricing in the Dashboard  

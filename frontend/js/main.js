@@ -60,6 +60,7 @@ Object.assign(window, {
   saveGuardrails: settings.saveGuardrails,
   saveRouting: settings.saveRouting,
   saveCache: settings.saveCache,
+  saveNotifications: settings.saveNotifications,
   toggleShowKey: settings.toggleShowKey,
   rotateKey: settings.rotateKey,
 });

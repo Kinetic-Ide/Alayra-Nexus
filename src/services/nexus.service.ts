@@ -26,6 +26,8 @@ import { selectModels, type SelectableModel, type Capability } from '../lib/mode
 import { stripTrailingSlash, assertSafeUrl } from '../lib/url';
 import { getSsrfPolicy }     from './ssrf.service';
 import { SHARED_NAMESPACE, type RoutingScope } from '../lib/scope';
+import { notificationsArmed, notify } from './notifications.service';
+import { keyBannedMessage, breakerOpenedMessage } from '../lib/notify';
 
 export { maskKey };
 
@@ -404,13 +406,32 @@ export async function reportServerFailure(keyId: string, wasProbe: boolean): Pro
   if (opened) {
     const until = new Date(Date.now() + cooldownSeconds * 1000);
     await prisma.nexusKey.update({ where: { id: keyId }, data: { status: 'cooling', coolingUntil: until } });
+    void alertKeyEvent(keyId, 'opened', cooldownSeconds).catch(() => {});
   }
 }
 
 /** An auth failure (401/403): ban the key outright once the threshold is hit. */
 export async function reportAuthFailure(keyId: string): Promise<void> {
   const { banned } = await breaker.onAuthFailure(keyId);
-  if (banned) await banKey(keyId);
+  if (banned) {
+    await banKey(keyId);
+    void alertKeyEvent(keyId, 'banned').catch(() => {});
+  }
+}
+
+// Fire-and-forget operator alert (Phase 6.4) for a key-level failure. The armed check is a
+// cheap cached read, so the extra lookup for the provider/masked-key display only runs when
+// notifications are actually enabled for this event. Never awaited by the reporters.
+async function alertKeyEvent(keyId: string, kind: 'banned' | 'opened', cooldownSeconds = 0): Promise<void> {
+  const event = kind === 'banned' ? 'keyBanned' : 'breakerOpened';
+  if (!(await notificationsArmed(event))) return;
+  const k = await prisma.nexusKey.findUnique({
+    where: { id: keyId }, select: { maskedKey: true, provider: { select: { slug: true } } },
+  });
+  if (!k) return;
+  await notify(kind === 'banned'
+    ? keyBannedMessage(k.provider.slug, k.maskedKey)
+    : breakerOpenedMessage(k.provider.slug, k.maskedKey, cooldownSeconds));
 }
 
 export async function testKey(keyId: string): Promise<{ success: boolean; latencyMs?: number; error?: string }> {

@@ -1,0 +1,126 @@
+/*
+ * Copyright (c) 2026 Alayra Systems Pvt. Limited (Pakistan)
+ * & Alayra Systems LLC (USA).
+ *
+ * Alayra Nexus™ is a trademark of Alayra Systems. Use of the name or logo
+ * is not granted by the software license below.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * A copy of the License is in the LICENSE file at the repository root,
+ * or at http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+ * ANY KIND, either express or implied. See the License for details.
+ */
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// In-memory settings store so setNotificationConfig → read round-trips.
+const store = new Map<string, string>();
+vi.mock('./settings.service', () => ({
+  getSetting: vi.fn(async (k: string) => store.get(k) ?? null),
+  setSetting: vi.fn(async (k: string, v: string) => { store.set(k, v); }),
+}));
+
+// Redis SET NX: first claim per key returns 'OK', repeats return null (coalesced).
+const claimed = new Set<string>();
+const redisSet = vi.fn(async (key: string, _v: string, _ex: string, _ttl: number, _nx: string) => {
+  if (claimed.has(key)) return null;
+  claimed.add(key);
+  return 'OK';
+});
+vi.mock('../lib/redis', () => ({ redis: { set: (...a: unknown[]) => redisSet(...(a as Parameters<typeof redisSet>)) } }));
+
+// Reversible fake crypto so the round-trip is observable without a real master key.
+vi.mock('../lib/encryption', () => ({
+  encrypt: (s: string) => `enc(${s})`,
+  decrypt: (s: string) => s.replace(/^enc\((.*)\)$/, '$1'),
+  maskKey: (s: string) => '●●●●' + s.slice(-4),
+}));
+
+import {
+  notify, setNotificationConfig, getNotificationConfigForUI, notificationsArmed,
+} from './notifications.service';
+import { keyBannedMessage } from '../lib/notify';
+
+let fetchMock: ReturnType<typeof vi.fn>;
+beforeEach(() => {
+  store.clear(); claimed.clear();
+  redisSet.mockClear();
+  fetchMock = vi.fn(async () => ({ ok: true, status: 200 }));
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+});
+
+async function enable(over: Record<string, unknown> = {}) {
+  await setNotificationConfig({
+    enabled: true, resendApiKey: 're_live_key', from: 'alerts@x.com', to: ['ops@x.com'],
+    webhookUrl: 'https://hooks.example.com/x', windowSeconds: 3600, ...over,
+  });
+}
+
+describe('config storage', () => {
+  it('encrypts a new key and never returns the plaintext to the UI', async () => {
+    await enable();
+    expect(store.get('NOTIFICATIONS_CONFIG')).toContain('enc(re_live_key)'); // ciphertext at rest
+    const ui = await getNotificationConfigForUI();
+    expect(ui.resendKeySet).toBe(true);
+    expect(ui.resendKeyMasked).toBe('●●●●_key');
+    expect(JSON.stringify(ui)).not.toContain('re_live_key');
+  });
+
+  it('keeps the stored key when a masked value is echoed back, and clears on empty string', async () => {
+    await enable();
+    await setNotificationConfig({ enabled: true, resendApiKey: '●●●●_key', from: 'alerts@x.com', to: ['ops@x.com'] });
+    expect(store.get('NOTIFICATIONS_CONFIG')).toContain('enc(re_live_key)'); // unchanged
+    await setNotificationConfig({ enabled: true, resendApiKey: '', from: 'alerts@x.com', to: ['ops@x.com'] });
+    expect(await getNotificationConfigForUI()).toMatchObject({ resendKeySet: false });
+  });
+
+  it('reflects the master switch and per-event flags via notificationsArmed', async () => {
+    await enable({ events: { keyBanned: false } });
+    expect(await notificationsArmed('keyBanned')).toBe(false);
+    expect(await notificationsArmed('breakerOpened')).toBe(true);
+    await setNotificationConfig({ enabled: false });
+    expect(await notificationsArmed('breakerOpened')).toBe(false); // master off wins
+  });
+});
+
+describe('notify', () => {
+  it('sends one email and one webhook when armed and first-in-window', async () => {
+    await enable();
+    await notify(keyBannedMessage('openai', '●●●●1234'));
+    const urls = fetchMock.mock.calls.map((c) => c[0]);
+    expect(urls).toContain('https://api.resend.com/emails');
+    expect(urls).toContain('https://hooks.example.com/x');
+  });
+
+  it('coalesces: a repeat within the window sends nothing', async () => {
+    await enable();
+    const msg = keyBannedMessage('openai', '●●●●1234');
+    await notify(msg);
+    fetchMock.mockClear();
+    await notify(msg); // same dedupe key
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('sends nothing when disabled or the event is off', async () => {
+    await enable({ enabled: false });
+    await notify(keyBannedMessage('openai', '●●●●1234'));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(redisSet).not.toHaveBeenCalled(); // bails before claiming a window
+  });
+
+  it('never throws when a channel send fails', async () => {
+    await enable();
+    fetchMock.mockRejectedValue(new Error('network down'));
+    await expect(notify(keyBannedMessage('openai', '●●●●9999'))).resolves.toBeUndefined();
+  });
+
+  it('only emails when the webhook is unset (and vice versa)', async () => {
+    await enable({ webhookUrl: '' });
+    await notify(keyBannedMessage('anthropic', '●●●●5678'));
+    const urls = fetchMock.mock.calls.map((c) => c[0]);
+    expect(urls).toEqual(['https://api.resend.com/emails']);
+  });
+});

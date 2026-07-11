@@ -22,6 +22,7 @@ import { getGuardrailConfigForUI, setGuardrailConfig } from '../../services/guar
 import { getRoutingConfigForUI, setCostWeight } from '../../services/routing.service';
 import { setSetting } from '../../services/settings.service';
 import { getSsrfConfig, setSsrfConfig } from '../../services/ssrf.service';
+import { getNotificationConfigForUI, setNotificationConfig } from '../../services/notifications.service';
 import { prisma }              from '../../lib/prisma';
 import { z }                   from 'zod';
 import { adminGuard }           from './guard';
@@ -105,6 +106,33 @@ export default async function adminSettingsRoutes(fastify: FastifyInstance) {
     const body = cacheSchema.parse(request.body);
     await setCacheConfig(body.enabled, body.ttlSeconds);
     return reply.send(await getCacheConfigForUI());
+  });
+
+  // ── Notifications (Phase 6.4) ─────────────────────────────────────
+
+  fastify.get('/admin/settings/notifications', adminGuard, async (_req, reply) => {
+    return reply.send(await getNotificationConfigForUI());
+  });
+
+  const notificationsSchema = z.object({
+    enabled:      z.boolean(),
+    // Omit or send the masked value to keep the stored key; '' clears it.
+    resendApiKey: z.string().max(500).optional(),
+    from:         z.string().max(200).default(''),
+    to:           z.array(z.string().email()).max(20).default([]),
+    webhookUrl:   z.string().url().max(500).or(z.literal('')).default(''),
+    events:       z.object({
+      keyBanned:     z.boolean().optional(),
+      breakerOpened: z.boolean().optional(),
+      adminLockout:  z.boolean().optional(),
+    }).default({}),
+    windowSeconds: z.number().int().min(60).max(86400).default(3600),
+  });
+
+  fastify.put('/admin/settings/notifications', adminGuard, async (request, reply) => {
+    const body = notificationsSchema.parse(request.body);
+    await setNotificationConfig(body);
+    return reply.send(await getNotificationConfigForUI());
   });
 
   // ── Settings ──────────────────────────────────────────────────────

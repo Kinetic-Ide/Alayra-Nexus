@@ -215,6 +215,32 @@
           <input type="number" id="cache-ttl" min="1" max="2592000" value="3600" style="width:160px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)"/>
           <div><button class="btn btn-sm" style="margin-top:12px" onclick="saveCache()">Save cache</button></div>
         </div>
+
+        <div class="card" style="max-width:500px;margin-top:16px">
+          <div class="card-title">Notifications</div>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Get alerted when the gateway degrades or is attacked, so you don't have to watch this dashboard. Off by default. Sends at most one message per event per window (a flapping key won't flood you). Email via <a href="https://resend.com" target="_blank" rel="noopener" style="color:var(--accent)">Resend</a> (free tier), and/or a generic webhook (Slack/Discord/PagerDuty). Delivery never touches the request path.</p>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:12px">
+            <input type="checkbox" id="notify-enabled"/>
+            <span>Enable notifications</span>
+          </label>
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Resend API key</label>
+          <input type="password" id="notify-resend-key" placeholder="re_… (leave as-is to keep saved key)" autocomplete="off" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);margin-bottom:10px"/>
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">From address (a verified Resend sender)</label>
+          <input type="text" id="notify-from" placeholder="alerts@yourdomain.com" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);margin-bottom:10px"/>
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Recipients (one email per line)</label>
+          <textarea id="notify-to" rows="2" placeholder="you@yourdomain.com" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);margin-bottom:10px;font-family:inherit"></textarea>
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Webhook URL (optional)</label>
+          <input type="text" id="notify-webhook" placeholder="https://hooks.slack.com/…" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);margin-bottom:12px"/>
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Alert me when…</label>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="notify-ev-keyBanned"/><span>A provider key is auto-banned</span></label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="notify-ev-breakerOpened"/><span>A circuit breaker opens (upstream failing)</span></label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="notify-ev-adminLockout"/><span>Admin login is locked out</span></label>
+          </div>
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Coalesce window (seconds) — one message per event per window</label>
+          <input type="number" id="notify-window" min="60" max="86400" value="3600" style="width:160px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)"/>
+          <div><button class="btn btn-sm" style="margin-top:12px" onclick="saveNotifications()">Save notifications</button></div>
+        </div>
       </div>
 
     </main>

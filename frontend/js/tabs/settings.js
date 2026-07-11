@@ -22,6 +22,55 @@ async function loadSettings() {
   loadGuardrails();
   loadRouting();
   loadCache();
+  loadNotifications();
+}
+
+const NOTIFY_EVENTS = ['keyBanned', 'breakerOpened', 'adminLockout'];
+
+async function loadNotifications() {
+  if (window._demoMode) return;
+  try {
+    const n = await GET('/admin/settings/notifications');
+    document.getElementById('notify-enabled').checked = !!n.enabled;
+    document.getElementById('notify-from').value = n.from || '';
+    document.getElementById('notify-to').value = (n.to || []).join('\n');
+    document.getElementById('notify-webhook').value = n.webhookUrl || '';
+    document.getElementById('notify-window').value = n.windowSeconds ?? 3600;
+    // Never render the key; show its mask as the placeholder so "leave blank = keep" is clear.
+    document.getElementById('notify-resend-key').value = '';
+    document.getElementById('notify-resend-key').placeholder = n.resendKeySet
+      ? `${n.resendKeyMasked} (leave as-is to keep saved key)`
+      : 're_… (leave as-is to keep saved key)';
+    for (const e of NOTIFY_EVENTS) {
+      const el = document.getElementById('notify-ev-' + e);
+      if (el) el.checked = n.events ? n.events[e] !== false : true;
+    }
+  } catch {}
+}
+
+async function saveNotifications() {
+  const events = {};
+  for (const e of NOTIFY_EVENTS) {
+    const el = document.getElementById('notify-ev-' + e);
+    events[e] = el ? el.checked : true;
+  }
+  const body = {
+    enabled:      document.getElementById('notify-enabled').checked,
+    from:         document.getElementById('notify-from').value.trim(),
+    to:           document.getElementById('notify-to').value.split('\n').map(s => s.trim()).filter(Boolean),
+    webhookUrl:   document.getElementById('notify-webhook').value.trim(),
+    events,
+    windowSeconds: parseInt(document.getElementById('notify-window').value, 10) || 3600,
+  };
+  // Only send the key when the operator actually typed a new one — a blank field keeps
+  // the stored key (the server treats an omitted key as "unchanged").
+  const typedKey = document.getElementById('notify-resend-key').value.trim();
+  if (typedKey) body.resendApiKey = typedKey;
+  try {
+    await PUT('/admin/settings/notifications', body);
+    toast('Notifications saved');
+    loadNotifications();
+  } catch(e) { toast(e.message, true); }
 }
 
 async function saveSsrf() {
@@ -119,5 +168,5 @@ async function rotateKey() {
 
 export {
   loadSettings, saveSsrf, loadGuardrails, saveGuardrails, loadRouting, saveRouting,
-  loadCache, saveCache, toggleShowKey, rotateKey,
+  loadCache, saveCache, loadNotifications, saveNotifications, toggleShowKey, rotateKey,
 };

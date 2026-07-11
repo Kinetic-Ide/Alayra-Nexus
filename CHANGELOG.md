@@ -10,6 +10,14 @@ semver. The legacy ids `kinetic-nexus-1` and `nexus` remain accepted as aliases.
 ## [Unreleased]
 
 ### Added
+- **Operator notifications — Resend email + webhooks (Phase 6.4).** Get alerted when the
+  gateway degrades or is attacked instead of watching the dashboard: a provider key
+  auto-banned, a circuit breaker opening, or an admin login locked out. Off by default;
+  configured from a new Settings card. Email goes through Resend (free tier) with the API
+  key stored AES-256-GCM encrypted (never plaintext, never logged, masked in the UI), and
+  a generic webhook target covers Slack/Discord/PagerDuty. Delivery is fire-and-forget and
+  **never on the request path** — a mail outage cannot slow or fail a proxied request — and
+  is coalesced so a flapping key produces one message per window, not a flood.
 - **Speech-to-text — `POST /v1/audio/transcriptions` (Phase 6.3d).** Audio transcription
   over the same routing, failover, breaker, budgets, and analytics as every other
   endpoint. The audio arrives as a multipart upload; Nexus rebuilds the form with the

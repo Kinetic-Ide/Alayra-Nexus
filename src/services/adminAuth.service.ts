@@ -20,6 +20,8 @@ import { redis }             from '../lib/redis';
 import { encrypt, decrypt }  from '../lib/encryption';
 import { safeEqual }         from '../lib/timingSafe';
 import { verifyTotp, generateTotpSecret, otpauthUri } from '../lib/totp';
+import { notificationsArmed, notify } from './notifications.service';
+import { adminLockoutMessage } from '../lib/notify';
 
 // ── Admin authentication (Phase 6) ────────────────────────────────────────────
 //
@@ -233,20 +235,36 @@ export type LoginResult =
  * two-step sign-in (password, then password + code) is not penalised: a success clears
  * the counter, so only an *abandoned* sign-in accumulates.
  */
+// Fire-and-forget operator alert (Phase 6.4) when admin sign-in locks out. The armed check
+// is a cheap cached read, so nothing happens unless the operator enabled this alert.
+async function alertAdminLockout(source: string): Promise<void> {
+  if (!(await notificationsArmed('adminLockout'))) return;
+  await notify(adminLockoutMessage(source));
+}
+
 export async function login(password: string, code: string | undefined, source: string): Promise<LoginResult> {
   const retryAfter = await lockoutRemaining(source);
   if (retryAfter > 0) return { ok: false, reason: 'locked_out', retryAfter };
 
+  // Record a failed attempt and, when it is the one that trips the lockout, fire the
+  // operator alert once (fire-and-forget). Every failure path routes through here so the
+  // alert cannot be reached by only some of them.
+  const fail = async () => {
+    const r = await recordFailedAttempt(source);
+    if (r.lockedOut) void alertAdminLockout(source).catch(() => {});
+    return r;
+  };
+
   const expected = process.env.ADMIN_PASSWORD;
   if (!safeEqual(password, expected)) {
-    const { lockedOut, retryAfter: ra } = await recordFailedAttempt(source);
+    const { lockedOut, retryAfter: ra } = await fail();
     return lockedOut ? { ok: false, reason: 'locked_out', retryAfter: ra } : { ok: false, reason: 'invalid' };
   }
 
   const { enabled } = await getTotpState();
   if (enabled) {
     if (!code) {
-      const { lockedOut, retryAfter: ra } = await recordFailedAttempt(source);
+      const { lockedOut, retryAfter: ra } = await fail();
       return lockedOut
         ? { ok: false, reason: 'locked_out', retryAfter: ra }
         : { ok: false, reason: 'totp_required' };
@@ -255,7 +273,7 @@ export async function login(password: string, code: string | undefined, source: 
     const bySecret = !!row?.totpSecret && verifyTotp(code, decrypt(row.totpSecret));
     const byRecovery = bySecret ? false : await consumeRecoveryCode(code);
     if (!bySecret && !byRecovery) {
-      const { lockedOut, retryAfter: ra } = await recordFailedAttempt(source);
+      const { lockedOut, retryAfter: ra } = await fail();
       return lockedOut ? { ok: false, reason: 'locked_out', retryAfter: ra } : { ok: false, reason: 'invalid' };
     }
   }
