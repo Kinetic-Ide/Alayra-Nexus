@@ -18,10 +18,56 @@
 .rankBar { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
 .rankVal { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
 
+.cols1 { grid-template-columns: 1fr; }
+
 /* Loading / error states for data-backed pages. */
 .centered { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 13px; padding: 60px 0; }
 .errBody { display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; padding: 56px 16px; text-align: center; }
 .errIcon { color: var(--subtle); }
+
+/* ── Nexus: routing rules ── */
+.rules { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 9px; font-size: 13px; color: var(--muted); }
+.rules b { color: var(--text); font-weight: 600; }
+.rulesMeta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+.rulesMetaLabel { font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.rulesMetaHint { font-size: 12px; color: var(--subtle); }
+.rulesNote { margin-top: 14px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border); font-size: 12.5px; color: var(--muted); display: flex; gap: 7px; align-items: flex-start; line-height: 1.5; }
+.rulesNote b { color: var(--text); }
+
+/* ── Nexus: pools & keys ── */
+.tierHeading { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin-bottom: 12px; }
+.poolGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.poolHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.poolName { font-size: 15px; font-weight: 650; }
+.poolSub { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+.poolModel { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.poolCount { font-size: 12px; color: var(--subtle); white-space: nowrap; }
+.keyList { display: flex; flex-direction: column; gap: 8px; }
+.keyRow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border); }
+.keyMain { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.keyMask { font-family: var(--font-mono); font-size: 12.5px; color: var(--text); }
+.keyLabel { font-size: 12px; color: var(--muted); }
+.keyMeta { display: flex; align-items: center; gap: 10px; }
+.keySub { font-size: 11.5px; color: var(--subtle); white-space: nowrap; }
+.keyProbe { font-size: 11.5px; color: var(--accent); }
+.keyActions { display: flex; gap: 6px; margin-left: auto; }
+
+/* ── Models ── */
+.modelCell { display: flex; flex-direction: column; gap: 2px; }
+.modelName { font-weight: 550; }
+.modelId { font-family: var(--font-mono); font-size: 11px; color: var(--subtle); }
+.caps { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.cap { font-size: 10.5px; padding: 2px 7px; border-radius: 20px; background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+.capIcon { display: inline-flex; color: var(--accent); }
+.modelPrice { font-size: 12.5px; color: var(--muted); }
+
+/* ── Connect ── */
+.connFields { display: flex; flex-direction: column; gap: 10px; }
+.epPath { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+
+@media (max-width: 980px) {
+  .poolGrid { grid-template-columns: 1fr; }
+}
 
 @media (max-width: 980px) {
   .cols4 { grid-template-columns: 1fr 1fr; }

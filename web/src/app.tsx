@@ -1,9 +1,21 @@
+import type { FunctionComponent } from 'preact';
 import { LocationProvider, Router, Route } from 'preact-iso';
 import { AppShell } from './shell/AppShell';
 import { SECTIONS } from './nav';
 import { Overview } from './pages/Overview';
+import { Nexus } from './pages/Nexus';
+import { Models } from './pages/Models';
+import { Connect } from './pages/Connect';
 import { Placeholder } from './pages/Placeholder';
 import { PageHeader, Card } from './ui';
+
+// Sections with a redesigned page of their own; the rest fall through to Placeholder until their
+// phase lands.
+const PAGES: Record<string, FunctionComponent> = {
+  nexus:   Nexus,
+  models:  Models,
+  connect: Connect,
+};
 
 function NotFound() {
   return (
@@ -25,9 +37,10 @@ export function App() {
       <AppShell>
         <Router>
           <Route path="/" component={Overview} />
-          {SECTIONS.filter((sec) => sec.id !== 'overview').map((sec) => (
-            <Route key={sec.id} path={sec.path} component={() => <Placeholder section={sec} />} />
-          ))}
+          {SECTIONS.filter((sec) => sec.id !== 'overview').map((sec) => {
+            const Page = PAGES[sec.id];
+            return <Route key={sec.id} path={sec.path} component={Page ?? (() => <Placeholder section={sec} />)} />;
+          })}
           <Route default component={NotFound} />
         </Router>
       </AppShell>

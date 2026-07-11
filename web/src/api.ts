@@ -53,6 +53,34 @@ export interface Overview {
   recentLogs: { id: string; action: string; method: string; actorRole: string; status: number; target: string | null; createdAt: string }[];
 }
 
+// Mirrors GET /admin/nexus/overview (nexusOverview.service.ts).
+export interface NexusKeyHealth {
+  id: string; maskedKey: string; label: string | null; status: string;
+  coolingUntil: string | null; rpmLimit: number; ownerTeamName: string | null; lastUsedAt: string | null;
+}
+export interface NexusPool {
+  id: string; name: string; slug: string; provider: string; tier: string;
+  preferredModel: string | null; keys: NexusKeyHealth[];
+}
+export interface NexusOverview {
+  summary: { providers: number; activeKeys: number; coolingKeys: number; bannedKeys: number; totalKeys: number };
+  routing: { costWeight: number };
+  tiers:   { tier: string; providers: NexusPool[] }[];
+}
+
+// Mirrors GET /admin/models (models.routes.ts) — one registry entry.
+export interface AiModel {
+  id: string; displayName: string; provider: string; modelString: string; tier: string; status: string;
+  priority: number; capabilities: string[]; hasVision: boolean; hasFIM: boolean; hasToolCalling: boolean;
+  inputCostPer1M: number; outputCostPer1M: number;
+  imagePrice: number; speechPricePer1MChars: number; transcriptionPrice: number;
+  contextWindow: number; maxTokens: number;
+}
+export interface ModelsResponse { models: AiModel[]; capabilities: string[]; }
+
+// Mirrors GET /admin/config (system.routes.ts).
+export interface GatewayConfig { baseUrl: string; nexusApiKey: string | null; isFirstRun: boolean; }
+
 export const GET  = <T = unknown>(p: string) => api<T>('GET', p);
 export const POST = <T = unknown>(p: string, b?: unknown) => api<T>('POST', p, b);
 export const PUT  = <T = unknown>(p: string, b?: unknown) => api<T>('PUT', p, b);

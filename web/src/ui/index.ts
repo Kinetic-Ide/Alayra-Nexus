@@ -8,5 +8,6 @@ export { Tabs, type TabItem } from './Tabs';
 export { Spinner } from './Spinner';
 export { EmptyState } from './EmptyState';
 export { CopyField } from './CopyField';
+export { CodeBlock } from './CodeBlock';
 export { LineChart } from './LineChart';
 export { Table, type Column } from './Table';

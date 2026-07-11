@@ -11,6 +11,45 @@
 
 ---
 
+**Date:** 2026-07-11 · Session 42  
+**Author:** Abbas  
+**Title:** Charts come alive, and Phase 7.3 — Nexus, Models & Connect  
+
+**Summary:**  
+Two pieces of work this session. First, the charts across the dashboard were brought to life.
+Until now they were beautiful but static pictures; now, moving the pointer across any trend chart
+reveals that day’s figure with a marker and a small pop-up label, and each chart quietly draws
+itself in when it first appears. It is the difference between a photograph of the data and
+something that responds to you — the numbers now feel live.
+
+Second, three more sections of the redesigned console were built and wired up: Nexus, Models, and
+Connect. **Nexus** is the home of the provider pools — the pools of upstream API keys the gateway
+routes across. It now presents each pool grouped by its routing tier, with every key’s live health
+(ready, resting, or blocked), who it belongs to (a shared pool or a specific team), and one-click
+controls to test, rest, block, or restore a key. Above the pools sits a plain-English explanation
+of exactly how the gateway chooses which key to use for a request — and, importantly, it is honest:
+it states clearly that a team’s “assigned tier” is recorded but not yet acted upon by routing, so
+nothing on screen implies a capability that isn’t live yet. That honesty came out of a careful
+review of the routing logic done as part of this work.
+
+**Models** is the catalogue of every model the gateway can route to, showing at a glance each
+model’s provider, tier, what it can do (chat, images, speech, transcription, and so on), and — the
+part that was missing before — what it actually costs, stated correctly for each kind of model
+(per million tokens for text, per image, per million characters for speech, per file for
+transcription) rather than a single misleading number. **Connect** is the “get started” screen: it
+shows the gateway’s address and access key ready to copy, a reference of every endpoint it exposes
+in both the OpenAI and Anthropic styles, and ready-made code snippets — already filled in with this
+gateway’s own details — for cURL and the two most common software kits, so a developer can be
+making calls in under a minute.
+
+Under the surface, each of the three screens is fed by a single, efficient behind-the-scenes read,
+and the work stayed strictly modular — every part its own small, self-contained file — as
+requested. New interface tests cover all of it. Everything passes cleanly on both parts of the
+project: code style, type safety, the full test suites, the production builds, and a
+zero-vulnerability dependency check. The redesign continues next with the Analytics section.
+
+---
+
 **Date:** 2026-07-11 · Session 41  
 **Author:** Abbas  
 **Title:** Phase 7.2 — Overview screen goes live  
