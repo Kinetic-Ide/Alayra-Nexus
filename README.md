@@ -532,6 +532,7 @@ POST /v1/embeddings         OpenAI Embeddings — for RAG / vector search
 POST /v1/completions        OpenAI legacy completions — fill-in-the-middle / autocomplete
 POST /v1/images/generations OpenAI Images — billed per image, not per token
 POST /v1/audio/speech       OpenAI TTS — returns audio, billed per character
+POST /v1/audio/transcriptions  OpenAI STT — multipart upload, billed per file
 GET  /v1/models             Model discovery (OpenAI + Anthropic shape)
 ```
 

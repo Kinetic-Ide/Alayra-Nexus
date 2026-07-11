@@ -39,6 +39,7 @@ const modelSchema = z.object({
   outputCostPer1M: z.number().min(0).default(0),
   imagePrice:            z.number().min(0).default(0),
   speechPricePer1MChars: z.number().min(0).default(0),
+  transcriptionPrice:    z.number().min(0).default(0),
   contextWindow:   z.number().int().min(0).default(0),
   maxTokens:       z.number().int().min(0).default(0),
 }).passthrough();

@@ -64,6 +64,11 @@ export interface DispatchOptions {
   // the upstream Content-Type. A binary response has no usage block, so a 'binary'
   // endpoint must bill from the request via `billing.quantityFromRequest`.
   responseMode?: 'json' | 'binary';
+  // Builds the upstream request body once a model is chosen. Set for multipart uploads
+  // (audio transcription): the caller rebuilds the form with the routed model injected,
+  // and fetch sets Content-Type itself so the multipart boundary is correct. When
+  // omitted, the JSON `body` is forwarded with the routed model merged in.
+  requestBuild?: (routedModel: string) => FormData;
   team?:        TeamContext;
   teamKeyId?:   string;
 }
@@ -127,7 +132,7 @@ export async function dispatchProxy(
   const t0 = Date.now();
   let tier: string | undefined = undefined; // set once a route is chosen (read in the closure before then)
   const observe = (o: metrics.RequestOutcome) => metrics.observeRequest(o, tier, (Date.now() - t0) / 1000);
-  const { team, teamKeyId, capability, upstreamPath, reserveTokens, billing } = opts;
+  const { team, teamKeyId, capability, upstreamPath, reserveTokens, billing, requestBuild } = opts;
   const responseMode = opts.responseMode ?? 'json';
 
   // Team budget gate — before any provider work.
@@ -167,20 +172,27 @@ export async function dispatchProxy(
   }
 
   const url = `${stripTrailingSlash(route.baseUrl)}${upstreamPath}`;
-  // Nexus decides the model; drop any streaming request — these endpoints are one-shot.
-  const { stream: _stream, ...rest } = body;
-  const upstreamBody = { ...rest, model: route.modelString };
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     [route.authHeader]: `${route.authPrefix ?? 'Bearer'} ${route.decryptedKey}`,
   };
+  // Multipart upload: the caller rebuilds the form with the routed model, and fetch sets
+  // its own multipart Content-Type (boundary). Otherwise forward JSON, dropping any
+  // stream flag (these endpoints are one-shot) and injecting the model Nexus chose.
+  let fetchBody: FormData | string;
+  if (requestBuild) {
+    fetchBody = requestBuild(route.modelString);
+  } else {
+    const { stream: _stream, ...rest } = body;
+    headers['Content-Type'] = 'application/json';
+    fetchBody = JSON.stringify({ ...rest, model: route.modelString });
+  }
 
   const controller = new AbortController();
   let ttft: ReturnType<typeof setTimeout> | null = setTimeout(() => controller.abort(), UPSTREAM_TTFT_MS);
 
   let upstream: Response;
   try {
-    upstream = await fetch(url, { method: 'POST', headers, body: JSON.stringify(upstreamBody), signal: controller.signal });
+    upstream = await fetch(url, { method: 'POST', headers, body: fetchBody, signal: controller.signal });
   } catch (err) {
     if (ttft) clearTimeout(ttft);
     refund();

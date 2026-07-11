@@ -44,11 +44,14 @@ export interface AiModel {
   hasToolCalling:  boolean;
   inputCostPer1M:  number;
   outputCostPer1M: number;
-  // Per-modality price (Phase 6.3b/6.3c). Some models are not billed per token. USD per
+  // Per-modality price (Phase 6.3b–6.3d). Some models are not billed per token. USD per
   // image (0 = unpriced) for image models; USD per 1,000,000 characters for speech
-  // models, matching how TTS providers publish their price. Transcription joins in 6.3d.
+  // models, matching how TTS providers publish their price; USD per transcription for
+  // speech-to-text (a flat per-file price — per-second billing would need the audio's
+  // duration, which providers don't return unless the response format is changed).
   imagePrice:            number;
   speechPricePer1MChars: number;
+  transcriptionPrice:    number;
   contextWindow:   number;
   maxTokens:       number;
 }
@@ -97,6 +100,7 @@ export function normalizeModel(raw: Record<string, unknown>): AiModel {
     outputCostPer1M: num(raw.outputCostPer1M ?? (num(raw.outputPricePer1k) * 1000)),
     imagePrice:            num(raw.imagePrice),
     speechPricePer1MChars: num(raw.speechPricePer1MChars),
+    transcriptionPrice:    num(raw.transcriptionPrice),
     contextWindow:   num(raw.contextWindow),
     maxTokens:       num(raw.maxTokens),
   };

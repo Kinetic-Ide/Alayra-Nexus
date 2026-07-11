@@ -19,6 +19,7 @@ import Fastify            from 'fastify';
 import cors               from '@fastify/cors';
 import helmet             from '@fastify/helmet';
 import rateLimit          from '@fastify/rate-limit';
+import multipart          from '@fastify/multipart';
 import staticFiles        from '@fastify/static';
 import path               from 'path';
 import proxyRoutes        from './routes/proxy';
@@ -74,6 +75,16 @@ async function bootstrap() {
 
   await app.register(helmet, { contentSecurityPolicy: false });
   await app.register(cors,   { origin: true });
+
+  // Multipart uploads — only /v1/audio/transcriptions uses them. Bounded so an
+  // oversized upload is rejected early rather than buffered into memory. JSON routes
+  // are unaffected; this parser engages only for multipart/form-data content types.
+  await app.register(multipart, {
+    limits: {
+      fileSize: parseInt(process.env.MAX_UPLOAD_BYTES ?? String(26 * 1024 * 1024), 10), // 26 MB, ~OpenAI's cap
+      files:    1,
+    },
+  });
 
   // ── Abuse guard (NOT a throughput cap — see note above) ──────────────
   // Redis-backed so the limit is correct across horizontally-scaled instances

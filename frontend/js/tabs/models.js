@@ -162,6 +162,23 @@ function buildModelForm(m) {
         <input id="m-output-cost" type="number" step="0.01" value="${m?m.outputCostPer1M||0:0}" min="0"/>
       </div>
     </div>
+    <div class="form-row">
+      <label class="form-label">Per-modality pricing — used only by the matching capability</label>
+      <div class="form-grid">
+        <div class="form-row">
+          <label class="form-label" style="font-weight:400;color:var(--muted)">Image ($ per image)</label>
+          <input id="m-image-price" type="number" step="0.001" value="${m?m.imagePrice||0:0}" min="0"/>
+        </div>
+        <div class="form-row">
+          <label class="form-label" style="font-weight:400;color:var(--muted)">Speech ($ per 1M chars)</label>
+          <input id="m-speech-price" type="number" step="0.01" value="${m?m.speechPricePer1MChars||0:0}" min="0"/>
+        </div>
+        <div class="form-row">
+          <label class="form-label" style="font-weight:400;color:var(--muted)">Transcription ($ per file)</label>
+          <input id="m-transcription-price" type="number" step="0.001" value="${m?m.transcriptionPrice||0:0}" min="0"/>
+        </div>
+      </div>
+    </div>
     <div class="form-grid">
       <div class="form-row">
         <label class="form-label">Context window</label>
@@ -194,6 +211,9 @@ async function submitModel(existingId) {
     hasFIM:          false, // superseded by the 'completion' capability
     inputCostPer1M:  parseFloat(document.getElementById('m-input-cost').value) || 0,
     outputCostPer1M: parseFloat(document.getElementById('m-output-cost').value) || 0,
+    imagePrice:            parseFloat(document.getElementById('m-image-price').value) || 0,
+    speechPricePer1MChars: parseFloat(document.getElementById('m-speech-price').value) || 0,
+    transcriptionPrice:    parseFloat(document.getElementById('m-transcription-price').value) || 0,
     contextWindow:   parseInt(document.getElementById('m-ctx').value) || 0,
     maxTokens:       parseInt(document.getElementById('m-max-tokens').value) || 0,
   };

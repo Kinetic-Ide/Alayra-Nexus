@@ -10,6 +10,18 @@ semver. The legacy ids `kinetic-nexus-1` and `nexus` remain accepted as aliases.
 ## [Unreleased]
 
 ### Added
+- **Speech-to-text — `POST /v1/audio/transcriptions` (Phase 6.3d).** Audio transcription
+  over the same routing, failover, breaker, budgets, and analytics as every other
+  endpoint. The audio arrives as a multipart upload; Nexus rebuilds the form with the
+  model it routed to (never the client's) and forwards it, so the model abstraction holds
+  here as everywhere else. The reply — JSON, plain text, or a subtitle format, depending
+  on the caller's `response_format` — is passed straight through. Billed once per
+  transcription against a model's `transcriptionPrice`. Uploads are bounded
+  (`MAX_UPLOAD_BYTES`, ~26 MB default).
+- **Per-modality price fields in the Models tab.** The registry editor now has inputs for
+  image (`$/image`), speech (`$/1M chars`), and transcription (`$/file`) pricing, so the
+  non-token endpoints added in 6.3b–6.3d can be priced from the dashboard rather than the
+  API.
 - **Text-to-speech — `POST /v1/audio/speech` (Phase 6.3c).** Speech synthesis routes to a
   model that declares the `speech` capability, through the same routing, failover,
   circuit breaker, budgets, and analytics as every other endpoint. The upstream returns

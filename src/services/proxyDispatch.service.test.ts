@@ -122,6 +122,32 @@ describe('dispatchProxy — binary (text-to-speech, Phase 6.3c)', () => {
   });
 });
 
+describe('dispatchProxy — multipart request (transcription, Phase 6.3d)', () => {
+  it('forwards the caller-built form with the routed model and no JSON Content-Type, billing once', async () => {
+    const transcript = Buffer.from('{"text":"hello world"}');
+    h.fetchImpl = async () => ({
+      ok: true, status: 200,
+      arrayBuffer: async () => transcript.buffer.slice(transcript.byteOffset, transcript.byteOffset + transcript.byteLength),
+      headers: { get: (k: string) => (k.toLowerCase() === 'content-type' ? 'application/json' : null) },
+    });
+    const built = new FormData();
+    let modelPassedToBuilder = '';
+    const { reply, state } = fakeReply();
+    await dispatchProxy({}, reply, {
+      capability: 'transcription', upstreamPath: '/audio/transcriptions', reserveTokens: 1,
+      responseMode: 'binary',
+      requestBuild: (model: string) => { modelPassedToBuilder = model; built.append('model', model); return built; },
+      billing: { unit: 'transcription', quantityFromRequest: () => 1 },
+    });
+
+    expect(modelPassedToBuilder).toBe('text-embed-3');           // routing chose the model, not the client
+    expect(lastFetch!.init.body).toBe(built);                    // the caller's form is forwarded as-is
+    expect((lastFetch!.init.headers as Record<string, string>)['Content-Type']).toBeUndefined(); // fetch sets the multipart boundary
+    expect(state.status).toBe(200);
+    expect(recordTokenUsage).toHaveBeenCalledWith(expect.objectContaining({ unit: 'transcription', quantity: 1, inputTokens: 0 }));
+  });
+});
+
 describe('dispatchProxy — per-image billing (Phase 6.3b)', () => {
   const imageOpts = {
     capability: 'image' as const, upstreamPath: '/images/generations', reserveTokens: 5,

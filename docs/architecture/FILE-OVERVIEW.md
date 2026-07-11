@@ -33,7 +33,7 @@ for the layering rule and the request path.
 | File | Responsibility |
 |---|---|
 | `completionsProxy.service.ts` | **The chat request path.** Budget → guardrails → scope → cache → route → upstream → outcome → usage |
-| `proxyDispatch.service.ts` | Generic non-chat transport (embeddings, completions, images, text-to-speech) over the same routing + resilience primitives; `billing` describes per-modality metering and `responseMode` selects JSON vs. raw-bytes (audio) reply |
+| `proxyDispatch.service.ts` | Generic non-chat transport (embeddings, completions, images, TTS, transcription) over the same routing + resilience primitives; `billing` sets per-modality metering, `responseMode` selects JSON vs. raw-bytes reply, `requestBuild` supplies a multipart upload body with the routed model injected |
 | `nexus.service.ts` | Key selection: `discoverBestPool`, tier sweeps, sticky resolution, breaker outcome reporters, provider probes |
 | `byok.service.ts` | Resolves a request's routing scope from its team |
 | `adminAuth.service.ts` | Sessions, login lockout, TOTP enrolment, recovery codes, admin API tokens |
@@ -49,7 +49,7 @@ for the layering rule and the request path.
 
 | File | Responsibility |
 |---|---|
-| `proxy.ts` | `/v1/chat/completions`, `/v1/models` |
+| `proxy.ts` | `/v1/chat/completions`, `/v1/messages`, `/v1/embeddings`, `/v1/completions`, `/v1/images/generations`, `/v1/audio/speech`, `/v1/audio/transcriptions`, `/v1/models` |
 | `admin/index.ts` | Registers the sub-routers below |
 | `admin/guard.ts` | `adminGuard` — the single place admin auth is applied |
 | `admin/auth.routes.ts` | `/admin/login` (the one unguarded admin route), TOTP, recovery codes, API tokens |

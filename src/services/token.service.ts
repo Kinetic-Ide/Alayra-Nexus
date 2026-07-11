@@ -51,8 +51,9 @@ function modelCost(m: Record<string, unknown>, input: number, output: number): n
 // costs 0 and never throws — accounting must never break a proxied request.
 function unitCost(m: Record<string, unknown>, unit: string, quantity: number): number {
   const q = Math.max(0, quantity);
-  if (unit === 'image')     return q * ((m.imagePrice as number | undefined) ?? 0);
-  if (unit === 'character') return (q / 1_000_000) * ((m.speechPricePer1MChars as number | undefined) ?? 0);
+  if (unit === 'image')         return q * ((m.imagePrice as number | undefined) ?? 0);
+  if (unit === 'character')     return (q / 1_000_000) * ((m.speechPricePer1MChars as number | undefined) ?? 0);
+  if (unit === 'transcription') return q * ((m.transcriptionPrice as number | undefined) ?? 0);
   return 0;
 }
 

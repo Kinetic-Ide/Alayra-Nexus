@@ -11,6 +11,63 @@
 
 ---
 
+**Date:** 2026-07-11 · Session 32  
+**Author:** Abbas  
+**Title:** Phase 6.3d — Speech-to-Text, and Per-Modality Pricing in the Dashboard  
+
+**Summary:**  
+This phase closes the audio pair and, with it, the run of non-conversational endpoints.
+Turning speech into text is the mirror image of the previous phase, and it is the harder
+half for a reason that has nothing to do with the transcription itself: the recording is
+not described in a request, it is uploaded as a file. That is a manner of carrying a
+request the gateway had never handled — everything before it arrived as either text or a
+small piece of structured data. So the gateway learned to receive an upload, and to do
+so within a firm size limit, refusing an oversized file at the door rather than drawing
+it into memory.
+
+The care in this phase went to keeping the upload consistent with the promise the whole
+gateway makes. From the beginning, the point of Nexus has been that the caller names a
+model in the abstract and the gateway decides which real model, on which account,
+actually serves the request. An upload made that promise harder to keep, because the
+model to use is written inside the uploaded form alongside the audio. The gateway
+therefore does not pass the upload along untouched; it reads the pieces out, sets aside
+the model the caller named, and reassembles the form around the model it chose itself
+before sending it on. The routing, the failover, the budgets, and the breaker are the
+same as for every other endpoint; only the shape of what travels to the provider is new.
+The answer that comes back can be a short document, a plain line of text, or a subtitle
+file, depending on what the caller asked for, so it is returned exactly as it arrives
+rather than assumed to be one of them.
+
+Pricing for a transcription was kept deliberately simple and honest. The natural way to
+charge for it is by the length of the recording, but the provider does not disclose that
+length unless the caller gives up the format they asked for, and buying a cheaper price
+at the cost of the caller's chosen output is a poor trade. So a transcription is billed
+as one transcription, at a price the operator sets on the model, recorded in its own unit
+beside the tokens and images and characters that came before it. Measuring by the second
+remains possible later, and would sit on exactly the same accounting; it is a refinement,
+not a foundation.
+
+The phase also carried a smaller piece of work that had been owed since images first
+arrived. The prices for these newer modalities existed in the data but could only be set
+by editing the registry through the API, which is no way to ask an operator to work. The
+Models tab now has plain fields for them — a price per image, a price per million
+characters of speech, a price per transcription — sitting beneath the familiar per-token
+costs, so every kind of model the gateway can route is now priced from the same screen.
+
+With this, the gateway speaks the whole of the common surface: conversation in two
+dialects, embeddings, completions, images, speech, and transcription, each one a front
+door onto a single shared core rather than a system of its own. What was held back was
+held back for cause and named where it was deferred — a Gemini-native dialect with a
+small audience, video with no settled standard to be compatible with, and per-second
+audio pricing that would cost the caller their chosen format. The tests cover the new
+transport at its seams: the upload is rebuilt around the routed model rather than the
+caller's, the multipart body is sent without a hand-set content type so its boundary is
+correct, the reply is returned untouched, and a transcription is billed as its own unit.
+
+**Green gate:** lint 0 · typecheck 0 · 305 tests pass (+1) · build 0 · npm audit 0 vulnerabilities.
+
+---
+
 **Date:** 2026-07-11 · Session 31  
 **Author:** Abbas  
 **Title:** Phase 6.3c — Text-to-Speech  

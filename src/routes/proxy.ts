@@ -89,6 +89,46 @@ export default async function proxyRoutes(fastify: FastifyInstance) {
     });
   });
 
+  // Speech-to-text (Phase 6.3d) — served by a model with the `transcription` capability.
+  // The audio arrives as a multipart upload; Nexus rebuilds the form with the model it
+  // routed to (never the client's) and forwards it. The reply can be JSON, plain text,
+  // or a subtitle format depending on the caller's `response_format`, so it is passed
+  // straight through as bytes. Billed once per transcription. Same routing/breaker/budget
+  // path as every other endpoint.
+  fastify.post('/v1/audio/transcriptions', { preHandler: [verifyApiKey] }, async (request, reply) => {
+    let fileBuf: Buffer | null = null;
+    let fileName = 'audio';
+    let fileType = 'application/octet-stream';
+    const fields: Record<string, string> = {};
+    for await (const part of request.parts()) {
+      if (part.type === 'file') {
+        fileBuf  = await part.toBuffer();
+        fileName = part.filename || fileName;
+        fileType = part.mimetype || fileType;
+      } else if (part.fieldname !== 'model') {
+        // Drop the client's model — Nexus injects the routed one when it rebuilds the form.
+        fields[part.fieldname] = String(part.value);
+      }
+    }
+    if (!fileBuf) {
+      return reply.code(400).send({ error: 'multipart/form-data with a "file" part is required.' });
+    }
+    const audio = fileBuf;
+    return dispatchProxy({}, reply, {
+      capability: 'transcription', upstreamPath: '/audio/transcriptions', reserveTokens: 1,
+      responseMode: 'binary',
+      requestBuild: (model) => {
+        const fd = new FormData();
+        fd.append('file', new Blob([audio], { type: fileType }), fileName);
+        for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+        fd.append('model', model);
+        return fd;
+      },
+      billing: { unit: 'transcription', quantityFromRequest: () => 1 },
+      team: request.team, teamKeyId: request.teamKeyId,
+    });
+  });
+
   // Model discovery. Returned as a superset that satisfies both an OpenAI client
   // (reads `object`/`data[].id`) and an Anthropic one such as Claude Code (reads
   // `data[].id`/`display_name` and the pagination fields), so one route serves both.
