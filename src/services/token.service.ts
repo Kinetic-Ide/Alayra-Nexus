@@ -152,110 +152,150 @@ async function alertBudgetThreshold(
   }));
 }
 
+// Analytics aggregation is pushed down to Postgres rather than pulled into memory. A 30- or
+// 90-day window in a busy deployment holds far too many rows to load and fold in JavaScript;
+// `aggregate`/`groupBy` (bounded by model/provider/team cardinality) and a `date_trunc` GROUP
+// BY for the day-bucketed series each return a fixed, tiny result regardless of row count.
+
 export async function getUsageSummary(period: Period = '30d', customSince?: Date, customUntil?: Date) {
   const { since, until } = resolveRange(period, customSince, customUntil);
-  const rows  = await prisma.tokenUsage.findMany({ where: { createdAt: { gte: since, lte: until } } });
+  const where = { createdAt: { gte: since, lte: until } };
 
-  const totals = { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, estimatedUsd: 0 };
-  const byModel:    Record<string, { inputTokens: number; outputTokens: number; tokens: number; usd: number; requests: number }> = {};
-  const byProvider: Record<string, { tokens: number; usd: number; requests: number }> = {};
-  const dayMap    = new Map<string, { tokens: number; requests: number; usd: number }>();
+  const [totalsAgg, byModelRows, byProviderRows, byDayRows] = await Promise.all([
+    prisma.tokenUsage.aggregate({
+      where, _count: { _all: true },
+      _sum: { inputTokens: true, outputTokens: true, totalTokens: true, estimatedUsd: true },
+    }),
+    prisma.tokenUsage.groupBy({
+      by: ['modelName'], where, _count: { _all: true },
+      _sum: { inputTokens: true, outputTokens: true, totalTokens: true, estimatedUsd: true },
+    }),
+    prisma.tokenUsage.groupBy({
+      by: ['provider'], where, _count: { _all: true },
+      _sum: { totalTokens: true, estimatedUsd: true },
+    }),
+    // Day buckets can't be expressed with the typed groupBy (createdAt is a full timestamp),
+    // so date_trunc is pushed down in raw SQL; sums are cast to float8 so the driver yields
+    // plain numbers rather than BigInt/Decimal.
+    prisma.$queryRaw<{ day: Date; tokens: number; requests: number; usd: number }[]>`
+      SELECT date_trunc('day', "createdAt") AS day,
+             SUM("totalTokens")::float8    AS tokens,
+             COUNT(*)::int                 AS requests,
+             SUM("estimatedUsd")::float8   AS usd
+      FROM "TokenUsage"
+      WHERE "createdAt" >= ${since} AND "createdAt" <= ${until}
+      GROUP BY day ORDER BY day ASC`,
+  ]);
 
-  for (const r of rows) {
-    totals.requests     += 1;
-    totals.inputTokens  += r.inputTokens;
-    totals.outputTokens += r.outputTokens;
-    totals.totalTokens  += r.totalTokens;
-    totals.estimatedUsd += r.estimatedUsd;
+  const totals = {
+    requests:     totalsAgg._count._all      ?? 0,
+    inputTokens:  totalsAgg._sum.inputTokens  ?? 0,
+    outputTokens: totalsAgg._sum.outputTokens ?? 0,
+    totalTokens:  totalsAgg._sum.totalTokens  ?? 0,
+    estimatedUsd: totalsAgg._sum.estimatedUsd ?? 0,
+  };
 
-    byModel[r.modelName] ??= { inputTokens: 0, outputTokens: 0, tokens: 0, usd: 0, requests: 0 };
-    byModel[r.modelName].inputTokens  += r.inputTokens;
-    byModel[r.modelName].outputTokens += r.outputTokens;
-    byModel[r.modelName].tokens       += r.totalTokens;
-    byModel[r.modelName].usd          += r.estimatedUsd;
-    byModel[r.modelName].requests     += 1;
-
-    byProvider[r.provider] ??= { tokens: 0, usd: 0, requests: 0 };
-    byProvider[r.provider].tokens   += r.totalTokens;
-    byProvider[r.provider].usd      += r.estimatedUsd;
-    byProvider[r.provider].requests += 1;
-
-    const day = r.createdAt.toISOString().slice(0, 10);
-    const de  = dayMap.get(day) ?? { tokens: 0, requests: 0, usd: 0 };
-    de.tokens   += r.totalTokens;
-    de.requests += 1;
-    de.usd      += r.estimatedUsd;
-    dayMap.set(day, de);
+  const byModel: Record<string, { inputTokens: number; outputTokens: number; tokens: number; usd: number; requests: number }> = {};
+  for (const r of byModelRows) {
+    byModel[r.modelName] = {
+      inputTokens:  r._sum.inputTokens  ?? 0,
+      outputTokens: r._sum.outputTokens ?? 0,
+      tokens:       r._sum.totalTokens  ?? 0,
+      usd:          r._sum.estimatedUsd ?? 0,
+      requests:     r._count._all       ?? 0,
+    };
   }
 
-  const byDay = Array.from(dayMap.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, d]) => ({ date, ...d }));
+  const byProvider: Record<string, { tokens: number; usd: number; requests: number }> = {};
+  for (const r of byProviderRows) {
+    byProvider[r.provider] = {
+      tokens:   r._sum.totalTokens  ?? 0,
+      usd:      r._sum.estimatedUsd ?? 0,
+      requests: r._count._all       ?? 0,
+    };
+  }
 
-  return { period, since: since.toISOString(), totals, byModel, byProvider, byDay };
+  const byDay = byDayRows.map((r) => ({
+    date:     new Date(r.day).toISOString().slice(0, 10),
+    tokens:   r.tokens   ?? 0,
+    requests: r.requests ?? 0,
+    usd:      r.usd      ?? 0,
+  }));
+
+  return { period, since: since.toISOString(), until: until.toISOString(), totals, byModel, byProvider, byDay };
 }
 
 export async function getUsageByTeamKey(period: Period = '30d', customSince?: Date, customUntil?: Date) {
   const { since, until } = resolveRange(period, customSince, customUntil);
-  const rows  = await prisma.tokenUsage.findMany({
+  const grouped = await prisma.tokenUsage.groupBy({
+    by:      ['nexusTeamKeyId'],
     where:   { createdAt: { gte: since, lte: until }, nexusTeamKeyId: { not: null } },
-    include: { teamKey: { select: { id: true, name: true } } },
+    _count:  { _all: true },
+    _sum:    { inputTokens: true, outputTokens: true, totalTokens: true, estimatedUsd: true },
   });
 
-  const byKey: Record<string, { name: string; inputTokens: number; outputTokens: number; totalTokens: number; requests: number; estimatedUsd: number }> = {};
-  for (const r of rows) {
-    if (!r.teamKey) continue;
-    const e = byKey[r.teamKey.id] ??= { name: r.teamKey.name, inputTokens: 0, outputTokens: 0, totalTokens: 0, requests: 0, estimatedUsd: 0 };
-    e.inputTokens  += r.inputTokens;
-    e.outputTokens += r.outputTokens;
-    e.totalTokens  += r.totalTokens;
-    e.requests     += 1;
-    e.estimatedUsd += r.estimatedUsd;
-  }
+  // Resolve names in one bounded lookup (groupBy can't include a relation). A key deleted
+  // since it logged usage drops out here, matching the old inner-join behaviour.
+  const ids  = grouped.map((g) => g.nexusTeamKeyId).filter((x): x is string => !!x);
+  const keys = ids.length
+    ? await prisma.nexusTeamKey.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })
+    : [];
+  const nameById = new Map(keys.map((k) => [k.id, k.name]));
 
-  return Object.entries(byKey)
-    .map(([id, v]) => ({ id, ...v }))
+  return grouped
+    .filter((g) => g.nexusTeamKeyId && nameById.has(g.nexusTeamKeyId))
+    .map((g) => ({
+      id:           g.nexusTeamKeyId as string,
+      name:         nameById.get(g.nexusTeamKeyId as string) ?? '',
+      inputTokens:  g._sum.inputTokens  ?? 0,
+      outputTokens: g._sum.outputTokens ?? 0,
+      totalTokens:  g._sum.totalTokens  ?? 0,
+      requests:     g._count._all       ?? 0,
+      estimatedUsd: g._sum.estimatedUsd ?? 0,
+    }))
     .sort((a, b) => b.totalTokens - a.totalTokens);
 }
 
 export async function getTimeSeriesByTeam(period: Period = '30d', customSince?: Date, customUntil?: Date) {
   const { since, until } = resolveRange(period, customSince, customUntil);
-  const rows  = await prisma.tokenUsage.findMany({
-    where:   { createdAt: { gte: since, lte: until }, nexusTeamKeyId: { not: null } },
-    include: { teamKey: { select: { id: true, name: true } } },
-    orderBy: { createdAt: 'asc' },
-  });
+  // Day × team-key buckets, aggregated in Postgres. The JOIN both attaches the display name
+  // and enforces "team traffic only" (a null team-key id cannot match). `teamId` preserves the
+  // existing shape, which labels the team-*key* id as teamId.
+  const rows = await prisma.$queryRaw<{ day: Date; teamKeyId: string; teamName: string; requests: number; tokens: number }[]>`
+    SELECT date_trunc('day', u."createdAt") AS day,
+           u."nexusTeamKeyId"               AS "teamKeyId",
+           k."name"                         AS "teamName",
+           COUNT(*)::int                    AS requests,
+           SUM(u."totalTokens")::float8     AS tokens
+    FROM "TokenUsage" u
+    JOIN "NexusTeamKey" k ON k.id = u."nexusTeamKeyId"
+    WHERE u."createdAt" >= ${since} AND u."createdAt" <= ${until}
+    GROUP BY day, u."nexusTeamKeyId", k."name"
+    ORDER BY day ASC`;
 
-  const map = new Map<string, { date: string; teamId: string; teamName: string; requests: number; tokens: number }>();
-  for (const r of rows) {
-    if (!r.teamKey) continue;
-    const date = r.createdAt.toISOString().slice(0, 10);
-    const key  = `${date}::${r.teamKey.id}`;
-    const e    = map.get(key) ?? { date, teamId: r.teamKey.id, teamName: r.teamKey.name, requests: 0, tokens: 0 };
-    e.requests += 1;
-    e.tokens   += r.totalTokens;
-    map.set(key, e);
-  }
-
-  return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+  return rows.map((r) => ({
+    date:     new Date(r.day).toISOString().slice(0, 10),
+    teamId:   r.teamKeyId,
+    teamName: r.teamName,
+    requests: r.requests ?? 0,
+    tokens:   r.tokens   ?? 0,
+  }));
 }
 
 export async function getTimeSeriesByModel(period: Period = '30d', customSince?: Date, customUntil?: Date) {
   const { since, until } = resolveRange(period, customSince, customUntil);
-  const rows  = await prisma.tokenUsage.findMany({
-    where:   { createdAt: { gte: since, lte: until } },
-    orderBy: { createdAt: 'asc' },
-    select:  { createdAt: true, modelName: true, totalTokens: true },
-  });
+  const rows = await prisma.$queryRaw<{ day: Date; model: string; tokens: number }[]>`
+    SELECT date_trunc('day', "createdAt") AS day,
+           "modelName"                    AS model,
+           SUM("totalTokens")::float8     AS tokens
+    FROM "TokenUsage"
+    WHERE "createdAt" >= ${since} AND "createdAt" <= ${until}
+    GROUP BY day, "modelName"
+    ORDER BY day ASC`;
 
-  const map = new Map<string, { date: string; model: string; tokens: number }>();
-  for (const r of rows) {
-    const date = r.createdAt.toISOString().slice(0, 10);
-    const key  = `${date}::${r.modelName}`;
-    const e    = map.get(key) ?? { date, model: r.modelName, tokens: 0 };
-    e.tokens += r.totalTokens;
-    map.set(key, e);
-  }
-
-  return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+  return rows.map((r) => ({
+    date:   new Date(r.day).toISOString().slice(0, 10),
+    model:  r.model,
+    tokens: r.tokens ?? 0,
+  }));
 }

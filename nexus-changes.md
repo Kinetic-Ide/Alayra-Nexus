@@ -11,6 +11,45 @@
 
 ---
 
+**Date:** 2026-07-11 · Session 35  
+**Author:** Abbas  
+**Title:** Hardening — Notification Delivery and Analytics Aggregation  
+
+**Summary:**  
+A pass over the code turned up two things worth correcting before the next feature, and this
+short session addressed both.
+
+The first concerns the alerts the gateway now sends. When it reached out over email or a
+webhook, it did not look closely enough at the answer it got back: a refusal from the mail
+provider — a key that had been rotated, a sender address that was never verified — or an error
+from a webhook endpoint was accepted as though the message had gone through. That would be a
+small matter on its own, but the way the gateway avoids flooding an operator with repeats made
+it consequential. To send exactly one message per problem per window, it marks the problem as
+handled the moment before it tries to send. If that single attempt then failed unseen, the
+mark stayed, and every later occurrence in the window was quietly held back — so the one
+message that mattered could be lost with nothing to show for it. Now the answer is read
+properly, and when a channel was actually tried and nothing got through, the mark is lifted so
+the next occurrence tries again. A message that genuinely went out still counts, and the
+one-per-window quiet is unchanged.
+
+The second concerns the usage dashboards. The figures behind them — totals, the breakdown by
+model and by provider, the per-day and per-team histories — were being assembled by pulling
+every record for the chosen span out of the database and adding them up in the application.
+For a long span on a busy gateway that is an enormous amount of data to move and hold, all to
+produce a handful of summary numbers. That work now happens inside the database, which is
+built for exactly this: it returns the already-summed figures, a small and steady amount no
+matter how much traffic sits behind them. The dashboards read the same as before; only the
+cost of producing them has dropped sharply. While there, the summary was also taught to report
+the end of the range it covers, not only the start, so a custom date range is stated in full.
+
+Neither change alters any behaviour an operator relies on, and no database change was required.
+
+**Verification:** Full green gate — linter clean, type-checker clean, full test suite passing
+with new coverage for the release-on-failed-delivery path and for the database-side
+aggregation, production build clean, dependency audit reporting zero vulnerabilities.
+
+---
+
 **Date:** 2026-07-11 · Session 34  
 **Author:** Abbas  
 **Title:** Phase 6.4b — Budget and Capacity Alerts  

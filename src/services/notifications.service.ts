@@ -108,23 +108,34 @@ async function postJson(url: string, headers: Record<string, string>, body: unkn
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
   try {
-    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body), signal: controller.signal });
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body), signal: controller.signal });
+    // A 2xx is the only "delivered". A rejected key (401), a bad sender (422), or a webhook
+    // 5xx must surface as a rejection so notify() can tell a real failure from a no-op and
+    // decline to burn the coalescing window on an alert that never actually went out.
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} from ${url}`);
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function sendEmail(c: NotificationConfig, msg: NotifyMessage): Promise<void> {
+/** Each channel reports whether it actually sent ('sent') or was not configured ('skipped'),
+ *  and throws when a configured send fails — the three outcomes notify() needs to decide
+ *  whether the once-per-window claim should stand or be released for a retry. */
+type ChannelResult = 'sent' | 'skipped';
+
+async function sendEmail(c: NotificationConfig, msg: NotifyMessage): Promise<ChannelResult> {
   const apiKey = safeDecrypt(c.resendApiKey);
-  if (!apiKey || !c.from || c.to.length === 0) return; // email channel not configured
+  if (!apiKey || !c.from || c.to.length === 0) return 'skipped'; // email channel not configured
   await postJson(RESEND_URL, { Authorization: `Bearer ${apiKey}` }, {
     from: c.from, to: c.to, subject: msg.title, text: msg.body,
   });
+  return 'sent';
 }
 
-async function sendWebhook(c: NotificationConfig, msg: NotifyMessage): Promise<void> {
-  if (!c.webhookUrl) return; // webhook channel not configured
+async function sendWebhook(c: NotificationConfig, msg: NotifyMessage): Promise<ChannelResult> {
+  if (!c.webhookUrl) return 'skipped'; // webhook channel not configured
   await postJson(c.webhookUrl, {}, { type: msg.type, title: msg.title, body: msg.body });
+  return 'sent';
 }
 
 /**
@@ -133,16 +144,26 @@ async function sendWebhook(c: NotificationConfig, msg: NotifyMessage): Promise<v
  * everyone else within the window is a no-op, so a flapping key produces one message, not a
  * storm. Fully guarded: a disabled feature, an unconfigured channel, or a failed send all
  * resolve quietly. Never on the request path — callers invoke this fire-and-forget.
+ *
+ * The claim is taken *before* the send, which is what makes coalescing atomic — but it means a
+ * send that then fails would silently swallow the whole window. So when a configured channel
+ * was actually attempted and nothing got through, the claim is released, letting the next
+ * occurrence retry rather than being lost until the window expires. A purely skipped
+ * (unconfigured) send keeps the claim, since there is nothing to retry and no point thrashing.
  */
 export async function notify(msg: NotifyMessage): Promise<void> {
   try {
     const c = await readConfig();
     if (!c.enabled || !c.events[msg.type]) return;
 
-    const claimed = await redis.set(coalesceRedisKey(msg.dedupeKey), '1', 'EX', c.windowSeconds, 'NX');
+    const key = coalesceRedisKey(msg.dedupeKey);
+    const claimed = await redis.set(key, '1', 'EX', c.windowSeconds, 'NX');
     if (claimed === null) return; // already alerted this window
 
     // Both channels are attempted; one failing never blocks the other, and neither throws out.
-    await Promise.allSettled([sendEmail(c, msg), sendWebhook(c, msg)]);
+    const results   = await Promise.allSettled([sendEmail(c, msg), sendWebhook(c, msg)]);
+    const delivered = results.some((r) => r.status === 'fulfilled' && r.value === 'sent');
+    const failed    = results.some((r) => r.status === 'rejected');
+    if (!delivered && failed) await redis.del(key).catch(() => {}); // nothing got through — allow a retry
   } catch { /* notifications must never disturb the caller */ }
 }

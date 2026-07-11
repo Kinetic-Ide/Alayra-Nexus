@@ -23,14 +23,19 @@ vi.mock('./settings.service', () => ({
   setSetting: vi.fn(async (k: string, v: string) => { store.set(k, v); }),
 }));
 
-// Redis SET NX: first claim per key returns 'OK', repeats return null (coalesced).
+// Redis SET NX: first claim per key returns 'OK', repeats return null (coalesced). `del`
+// releases a claim, so a failed delivery that releases the window can be observed as a retry.
 const claimed = new Set<string>();
 const redisSet = vi.fn(async (key: string, _v: string, _ex: string, _ttl: number, _nx: string) => {
   if (claimed.has(key)) return null;
   claimed.add(key);
   return 'OK';
 });
-vi.mock('../lib/redis', () => ({ redis: { set: (...a: unknown[]) => redisSet(...(a as Parameters<typeof redisSet>)) } }));
+const redisDel = vi.fn(async (key: string) => { claimed.delete(key); return 1; });
+vi.mock('../lib/redis', () => ({ redis: {
+  set: (...a: unknown[]) => redisSet(...(a as Parameters<typeof redisSet>)),
+  del: (...a: unknown[]) => redisDel(...(a as Parameters<typeof redisDel>)),
+} }));
 
 // Reversible fake crypto so the round-trip is observable without a real master key.
 vi.mock('../lib/encryption', () => ({
@@ -47,7 +52,7 @@ import { keyBannedMessage } from '../lib/notify';
 let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   store.clear(); claimed.clear();
-  redisSet.mockClear();
+  redisSet.mockClear(); redisDel.mockClear();
   fetchMock = vi.fn(async () => ({ ok: true, status: 200 }));
   globalThis.fetch = fetchMock as unknown as typeof fetch;
 });
@@ -122,5 +127,25 @@ describe('notify', () => {
     await notify(keyBannedMessage('anthropic', '●●●●5678'));
     const urls = fetchMock.mock.calls.map((c) => c[0]);
     expect(urls).toEqual(['https://api.resend.com/emails']);
+  });
+
+  it('treats a non-2xx reply as a failure and releases the window so the next occurrence retries', async () => {
+    await enable({ webhookUrl: '' }); // single channel — a 401 means nothing got through
+    fetchMock.mockResolvedValue({ ok: false, status: 401, statusText: 'Unauthorized' });
+    const msg = keyBannedMessage('openai', '●●●●1234');
+    await notify(msg);
+    expect(redisDel).toHaveBeenCalledWith('nexus:notify:sent:keyBanned:openai:●●●●1234'); // claim released
+
+    // The key was rotated / fixed: a retry now goes out rather than being swallowed for the window.
+    fetchMock.mockResolvedValue({ ok: true, status: 200 });
+    fetchMock.mockClear();
+    await notify(msg);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the window (does not release) once a channel actually delivered', async () => {
+    await enable(); // email + webhook; both 200 by default
+    await notify(keyBannedMessage('groq', '●●●●abcd'));
+    expect(redisDel).not.toHaveBeenCalled();
   });
 });

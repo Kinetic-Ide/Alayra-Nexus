@@ -9,6 +9,21 @@ semver. The legacy ids `kinetic-nexus-1` and `nexus` remain accepted as aliases.
 
 ## [Unreleased]
 
+### Changed
+- **Notification delivery integrity.** A non-2xx reply from Resend (a rotated key, an
+  unverified sender) or a webhook endpoint is now treated as a failure rather than silently
+  discarded. Because the once-per-window coalescing claim is taken before the send, a failed
+  delivery would otherwise have suppressed every retry for the whole window; the claim is now
+  released when a configured channel was attempted and nothing got through, so the next
+  occurrence can retry. A send that actually delivered still coalesces as before.
+- **Analytics aggregation pushed down to the database.** The usage summary, per-team-key
+  leaderboard, and the per-team / per-model time series no longer load every row for the
+  window into memory and fold it in JavaScript — a 30- or 90-day window on a busy gateway
+  could be millions of rows. Totals, per-model and per-provider breakdowns now use
+  `aggregate`/`groupBy`, and the day-bucketed series use a `date_trunc` grouped query, so each
+  returns a small, fixed result regardless of traffic. The usage summary also now reports the
+  window's upper bound (`until`) alongside `since`, so a custom date range is unambiguous.
+
 ### Added
 - **Budget & capacity alerts (Phase 6.4b).** Two more operator notifications, both detected
   on a live request and reusing the Phase 6.4 engine unchanged: a team crossing **80% / 100%
