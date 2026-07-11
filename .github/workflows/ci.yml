@@ -83,3 +83,28 @@ jobs:
       # Informational: dev-tooling advisories are surfaced but never block a release.
       - name: Audit all dependencies (informational)
         run: npm audit || true
+
+  # ── Dashboard (Phase 7 redesign) ──────────────────────────────────────────────
+  # The operator dashboard is a separate Vite + Preact app under web/ that builds to static
+  # assets. Its own lint / typecheck / test / build gate runs on every push so a UI change can
+  # never break the console or ship broken to a user.
+  ui:
+    name: UI (web dashboard)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Audit UI production dependencies
+        run: npm audit --omit=dev --audit-level=low

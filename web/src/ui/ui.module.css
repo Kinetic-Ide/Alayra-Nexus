@@ -1,0 +1,96 @@
+/* Shared, theme-token-driven styles for the component kit. Scoped by CSS Modules, so class
+   names stay local; every colour comes from a token so light/dark just work. */
+
+/* ── Button ── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border: 1px solid transparent; border-radius: var(--radius-sm);
+  font-size: 13px; font-weight: 550; line-height: 1;
+  padding: 9px 14px; cursor: pointer; white-space: nowrap;
+  transition: background .15s var(--ease), border-color .15s var(--ease), transform .05s;
+}
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .55; cursor: not-allowed; }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.primary   { background: var(--accent); color: var(--accent-contrast); box-shadow: var(--shadow-sm); }
+.primary:hover:not(:disabled)   { background: var(--accent-strong); }
+.secondary { background: var(--surface-2); color: var(--text); border-color: var(--border); }
+.secondary:hover:not(:disabled) { border-color: var(--border-strong); }
+.ghost     { background: transparent; color: var(--muted); }
+.ghost:hover:not(:disabled)     { background: var(--surface-2); color: var(--text); }
+.danger    { background: var(--red-bg); color: var(--red); }
+.danger:hover:not(:disabled)    { border-color: var(--red); }
+.sm { padding: 6px 10px; font-size: 12px; }
+.lg { padding: 12px 18px; font-size: 14px; }
+.iconBtn { padding: 8px; }
+
+/* ── Card / glass panel ── */
+.card {
+  background: var(--surface);
+  backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur));
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm); padding: 20px;
+}
+.cardTitle { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; font-weight: 600; }
+
+/* ── Stat card ── */
+.stat {
+  position: relative; display: flex; flex-direction: column; gap: 6px;
+  background: var(--surface); backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur));
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px;
+  box-shadow: var(--shadow-sm); transition: border-color .15s var(--ease), transform .12s var(--ease), box-shadow .15s var(--ease);
+  text-align: left; width: 100%; color: inherit;
+}
+.statClickable { cursor: pointer; }
+.statClickable:hover { border-color: var(--border-strong); transform: translateY(-2px); box-shadow: var(--shadow); }
+.statClickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.statLabel { font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); font-weight: 600; display: flex; align-items: center; gap: 7px; }
+.statValue { font-size: 26px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
+.statSub { font-size: 12px; color: var(--muted); }
+.statIcon { color: var(--accent); opacity: .9; }
+.statArrow { position: absolute; top: 14px; right: 14px; color: var(--subtle); opacity: 0; transition: opacity .15s; }
+.statClickable:hover .statArrow { opacity: 1; }
+
+/* ── Badge ── */
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+.green  { background: var(--green-bg);  color: var(--green);  }
+.yellow { background: var(--yellow-bg); color: var(--yellow); }
+.red    { background: var(--red-bg);    color: var(--red);    }
+.blue   { background: var(--blue-bg);   color: var(--blue);   }
+.violet { background: var(--accent-bg); color: var(--accent); }
+.gray   { background: var(--surface-2); color: var(--muted);  }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* ── Page header ── */
+.pageHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+.pageTitle { font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+.pageSub { color: var(--muted); font-size: 13px; margin-top: 3px; }
+
+/* ── Tabs ── */
+.tabs { display: inline-flex; gap: 2px; padding: 3px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.tab { border: none; background: none; color: var(--muted); font-size: 12.5px; font-weight: 550; padding: 6px 14px; border-radius: 5px; cursor: pointer; transition: all .15s var(--ease); }
+.tab:hover { color: var(--text); }
+.tabActive { background: var(--accent); color: var(--accent-contrast); }
+
+/* ── Copy field ── */
+.copy { display: flex; align-items: center; gap: 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 12px; }
+.copyLabel { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); width: 74px; flex-shrink: 0; font-weight: 600; }
+.copyVal { flex: 1; font-family: var(--font-mono); font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.copyBtn { flex-shrink: 0; }
+.copied { color: var(--green); }
+
+/* ── Empty state ── */
+.empty { text-align: center; padding: 44px 16px; color: var(--muted); }
+.emptyIcon { color: var(--subtle); margin-bottom: 10px; display: inline-flex; }
+
+/* ── Spinner ── */
+.spinner { display: inline-block; width: 15px; height: 15px; border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Line chart ── */
+.chart { width: 100%; display: block; overflow: visible; }
+.chartArea { fill: var(--accent); opacity: .12; }
+.chartLine { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chartGrid { stroke: var(--border); stroke-width: 1; }
+.chartDot { fill: var(--accent); }
+.chartEmpty { fill: var(--muted); font-size: 12px; }

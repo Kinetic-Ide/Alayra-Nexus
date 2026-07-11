@@ -238,12 +238,14 @@ Each phase ends with the standing green gate (lint/typecheck/test/build/audit 0)
 1. **Rendering architecture — Vite + Preact, static build (Option B).** See §2.
 2. **First-run reset = full database wipe — confirmed.** See §6.
 
-**Still open — settle when we reach those phases (P7.8 / P7.9), not blocking P7.1–P7.7:**
-3. **Teams — member list & Enterprise/Org layer.** Build a real multi-user/org data model, or
-   ship Teams with settings/budget/keys and treat "members" + "Enterprise" as a later phase?
-4. **Scope of P7.9.** Is true multi-user Admin (sub-admins + role-based users + invites) part of
-   this redesign, or a fast-follow after the visual redesign ships? (Ties into the multi-user
-   backend deferred in 6.5, and to the first-run identity work.)
+3. **Teams — DECIDED (2026-07-11): ship settings + budget + keys + assigned-tier first.** The
+   member list needs the same "accounts" primitive as sub-admins, so the multi-user/org data
+   model is built **once** in P7.9, not duplicated. Teams' P7.8 rebuild wires `assignedTier` and
+   presents budget/keys; members + Org land with the P7.9 accounts model.
+4. **P7.9 — DECIDED (2026-07-11): fast-follow.** The full visual redesign (P7.1–P7.8) ships on
+   the current single-owner + owner/viewer-token model first; the heavy, security-sensitive
+   multi-user backend (sub-admins, role-based users, invites, first-run identity, fingerprint,
+   reset-wipe) is the final phase, once the shell exists to present it.
 
 ---
 
