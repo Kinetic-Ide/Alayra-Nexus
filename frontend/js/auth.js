@@ -29,9 +29,19 @@ export function restoreTotpHint() {
   if (localStorage.getItem(TOTP_HINT_KEY) === '1') showTotpField();
 }
 
+/** Reflect the signed-in role in the shell (Phase 6.5): a read-only banner and a body flag
+ *  a viewer session can key off. The server is the real gate; this is only presentation. */
+function applyRole() {
+  const viewer = state.role === 'viewer';
+  document.body.classList.toggle('viewer-mode', viewer);
+  const banner = document.getElementById('readonly-banner');
+  if (banner) banner.style.display = viewer ? '' : 'none';
+}
+
 function enterApp() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
+  applyRole();
   initApp();
 }
 
@@ -72,11 +82,13 @@ export async function doLogin() {
     return;
   }
 
-  const { token } = await res.json();
+  const { token, role } = await res.json();
   // Signed in without a code, so the factor was disabled since we last saw it.
   if (!code) localStorage.removeItem(TOTP_HINT_KEY);
   state.token = token;
+  state.role  = role || 'owner';
   sessionStorage.setItem('nx_token', token);
+  sessionStorage.setItem('nx_role', state.role);
   enterApp();
 }
 
@@ -91,6 +103,8 @@ export async function restoreSession() {
     if (!res.ok) throw new Error('unauthorized');
     const d = await res.json();
     if (d.ok === undefined) throw new Error('unexpected response');
+    state.role = d.role || 'owner';
+    sessionStorage.setItem('nx_role', state.role);
     enterApp();
   } catch {
     state.token = '';

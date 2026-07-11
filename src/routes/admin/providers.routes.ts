@@ -22,7 +22,7 @@ import { prisma }              from '../../lib/prisma';
 import { randomUUID } from 'crypto';
 import { validateProviderCredentials, validateModel } from '../../services/nexus.service';
 import { z }                   from 'zod';
-import { adminGuard }           from './guard';
+import { adminGuard, adminOwnerGuard } from './guard';
 
 export default async function adminProvidersRoutes(fastify: FastifyInstance) {
   // ── Providers ─────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ export default async function adminProvidersRoutes(fastify: FastifyInstance) {
     return null;
   }
 
-  fastify.post('/admin/providers', adminGuard, async (request, reply) => {
+  fastify.post('/admin/providers', adminOwnerGuard, async (request, reply) => {
     const body = providerSchema.parse(request.body);
     const urlErr = await assertProviderUrlsSafe(body);
     if (urlErr) return reply.code(400).send({ error: urlErr });
@@ -70,7 +70,7 @@ export default async function adminProvidersRoutes(fastify: FastifyInstance) {
     return reply.code(201).send({ provider });
   });
 
-  fastify.patch('/admin/providers/:id', adminGuard, async (request, reply) => {
+  fastify.patch('/admin/providers/:id', adminOwnerGuard, async (request, reply) => {
     const { id } = request.params as { id: string };
     const body   = providerSchema.partial().parse(request.body);
     const urlErr = await assertProviderUrlsSafe(body);
@@ -79,7 +79,7 @@ export default async function adminProvidersRoutes(fastify: FastifyInstance) {
     return reply.send({ provider });
   });
 
-  fastify.delete('/admin/providers/:id', adminGuard, async (request, reply) => {
+  fastify.delete('/admin/providers/:id', adminOwnerGuard, async (request, reply) => {
     const { id } = request.params as { id: string };
     await prisma.nexusProvider.delete({ where: { id } });
     return reply.send({ success: true });
@@ -87,7 +87,7 @@ export default async function adminProvidersRoutes(fastify: FastifyInstance) {
 
   // ── Validation ────────────────────────────────────────────────────
 
-  fastify.post('/admin/validate/provider', adminGuard, async (request, reply) => {
+  fastify.post('/admin/validate/provider', adminOwnerGuard, async (request, reply) => {
     const { provider, baseUrl, apiKey, authHeader = 'Authorization', authPrefix } =
       request.body as { provider: string; baseUrl?: string; apiKey: string; authHeader?: string; authPrefix?: string };
     if (!apiKey) return reply.code(400).send({ error: 'apiKey is required' });
@@ -95,7 +95,7 @@ export default async function adminProvidersRoutes(fastify: FastifyInstance) {
     return reply.send(result);
   });
 
-  fastify.post('/admin/validate/model', adminGuard, async (request, reply) => {
+  fastify.post('/admin/validate/model', adminOwnerGuard, async (request, reply) => {
     const { providerId, modelName } = request.body as { providerId: string; modelName: string };
     if (!providerId || !modelName) return reply.code(400).send({ error: 'providerId and modelName are required' });
     const result = await validateModel(providerId, modelName);

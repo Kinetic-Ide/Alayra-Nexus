@@ -19,7 +19,7 @@ import { FastifyInstance }      from 'fastify';
 import { z }                    from 'zod';
 import { getModelRegistry, updateModelRegistry, normalizeModel } from '../../services/model.service';
 import { CAPABILITIES }         from '../../lib/modelSelect';
-import { adminGuard }           from './guard';
+import { adminGuard, adminOwnerGuard } from './guard';
 
 // The registry is a JSON blob, so it is the one admin write with no database schema
 // behind it — validate it here, or a malformed PUT corrupts routing for every request.
@@ -54,7 +54,7 @@ export default async function adminModelsRoutes(fastify: FastifyInstance) {
     return reply.send({ models, capabilities: CAPABILITIES });
   });
 
-  fastify.put('/admin/models', adminGuard, async (request, reply) => {
+  fastify.put('/admin/models', adminOwnerGuard, async (request, reply) => {
     const parsed = registrySchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: 'Invalid model registry', details: parsed.error.issues.slice(0, 5) });

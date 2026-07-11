@@ -23,7 +23,7 @@ import { randomUUID } from 'crypto';
 import { redis }               from '../../lib/redis';
 import { testKey, banKey, coolKey } from '../../services/nexus.service';
 import { z }                   from 'zod';
-import { adminGuard }           from './guard';
+import { adminGuard, adminOwnerGuard } from './guard';
 
 export default async function adminKeysRoutes(fastify: FastifyInstance) {
   // ── Keys ──────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ export default async function adminKeysRoutes(fastify: FastifyInstance) {
     ownerTeamId: z.string().uuid().nullish(),
   });
 
-  fastify.post('/admin/providers/:providerId/keys', adminGuard, async (request, reply) => {
+  fastify.post('/admin/providers/:providerId/keys', adminOwnerGuard, async (request, reply) => {
     const { providerId } = request.params as { providerId: string };
     const body = keySchema.parse(request.body);
     // Reject an unknown owner up front: the FK would throw a 500, and silently
@@ -76,19 +76,19 @@ export default async function adminKeysRoutes(fastify: FastifyInstance) {
     return reply.code(201).send({ key: { ...key, encryptedKey: undefined } });
   });
 
-  fastify.delete('/admin/keys/:id', adminGuard, async (request, reply) => {
+  fastify.delete('/admin/keys/:id', adminOwnerGuard, async (request, reply) => {
     const { id } = request.params as { id: string };
     await prisma.nexusKey.delete({ where: { id } });
     return reply.send({ success: true });
   });
 
-  fastify.post('/admin/keys/:id/ban', adminGuard, async (request, reply) => {
+  fastify.post('/admin/keys/:id/ban', adminOwnerGuard, async (request, reply) => {
     const { id } = request.params as { id: string };
     await banKey(id);
     return reply.send({ success: true });
   });
 
-  fastify.post('/admin/keys/:id/unban', adminGuard, async (request, reply) => {
+  fastify.post('/admin/keys/:id/unban', adminOwnerGuard, async (request, reply) => {
     const { id } = request.params as { id: string };
     // Clear the Redis breaker state too, or the key would stay gated after unban.
     await breakerReset(id);
@@ -96,13 +96,13 @@ export default async function adminKeysRoutes(fastify: FastifyInstance) {
     return reply.send({ success: true });
   });
 
-  fastify.post('/admin/keys/:id/test', adminGuard, async (request, reply) => {
+  fastify.post('/admin/keys/:id/test', adminOwnerGuard, async (request, reply) => {
     const { id } = request.params as { id: string };
     const result = await testKey(id);
     return reply.send(result);
   });
 
-  fastify.post('/admin/keys/:id/cool', adminGuard, async (request, reply) => {
+  fastify.post('/admin/keys/:id/cool', adminOwnerGuard, async (request, reply) => {
     const { id } = request.params as { id: string };
     await coolKey(id, 60);
     return reply.send({ success: true });

@@ -22,7 +22,7 @@ import { getSetting, setSetting } from '../../services/settings.service';
 import { prisma }              from '../../lib/prisma';
 import { randomUUID } from 'crypto';
 import { redis }               from '../../lib/redis';
-import { adminGuard }           from './guard';
+import { adminGuard, adminOwnerGuard } from './guard';
 
 export default async function adminSystemRoutes(fastify: FastifyInstance) {
   // ── Dashboard config (auto-detects base URL from request) ────────
@@ -40,11 +40,12 @@ export default async function adminSystemRoutes(fastify: FastifyInstance) {
 
   // ── Setup / health ────────────────────────────────────────────────
 
-  fastify.get('/admin/status', adminGuard, async (_req, reply) => {
+  fastify.get('/admin/status', adminGuard, async (request, reply) => {
     const apiKey = await getSetting('NEXUS_API_KEY');
     const providers = await prisma.nexusProvider.count();
     const keys      = await prisma.nexusKey.count({ where: { status: 'active' } });
-    return reply.send({ ok: true, providers, activeKeys: keys, apiKeySet: !!apiKey });
+    // `role` lets the dashboard restore its read-only state on reload (Phase 6.5).
+    return reply.send({ ok: true, providers, activeKeys: keys, apiKeySet: !!apiKey, role: request.adminRole ?? 'owner' });
   });
 
   // ── API key management ────────────────────────────────────────────
@@ -54,7 +55,7 @@ export default async function adminSystemRoutes(fastify: FastifyInstance) {
     return reply.send({ key });
   });
 
-  fastify.post('/admin/api-key/regenerate', adminGuard, async (_req, reply) => {
+  fastify.post('/admin/api-key/regenerate', adminOwnerGuard, async (_req, reply) => {
     const newKey = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '');
     await setSetting('NEXUS_API_KEY', newKey);
     return reply.send({ key: newKey });
@@ -108,7 +109,7 @@ export default async function adminSystemRoutes(fastify: FastifyInstance) {
 
   // ── Cache bust ────────────────────────────────────────────────────
 
-  fastify.post('/admin/cache/flush', adminGuard, async (_req, reply) => {
+  fastify.post('/admin/cache/flush', adminOwnerGuard, async (_req, reply) => {
     await redis.del(REGISTRY_CACHE_KEY);
     return reply.send({ success: true });
   });

@@ -14,10 +14,29 @@
  * ANY KIND, either express or implied. See the License for details.
  */
 
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { verifyAdminPassword } from '../../middleware/auth.middleware';
 
 /**
- * Every admin route carries this. Kept in one place so a new sub-router cannot
+ * Every admin route carries a guard. Kept in one place so a new sub-router cannot
  * accidentally register an unauthenticated endpoint under /admin.
+ *
+ * `adminGuard` authenticates the caller (any role) — use it for reads (GET) and for the
+ * few actions any signed-in caller may take on their own session (logout).
+ * `adminOwnerGuard` additionally requires the owner role — use it for every mutation.
  */
 export const adminGuard = { preHandler: [verifyAdminPassword] };
+
+/**
+ * Role gate (Phase 6.5). Runs after verifyAdminPassword, which has attached `adminRole`,
+ * so a viewer (read-only) credential is refused with a clear 403 on any mutating route.
+ * The server is the real boundary here — the dashboard also hides these actions, but that
+ * is only cosmetic.
+ */
+export async function requireOwner(request: FastifyRequest, reply: FastifyReply) {
+  if (request.adminRole !== 'owner') {
+    return reply.code(403).send({ error: 'This action requires owner access. Your credential is read-only.' });
+  }
+}
+
+export const adminOwnerGuard = { preHandler: [verifyAdminPassword, requireOwner] };

@@ -19,7 +19,7 @@ import { FastifyInstance } from 'fastify';
 import { z }              from 'zod';
 import * as auth          from '../../services/adminAuth.service';
 import * as metrics       from '../../lib/metrics';
-import { adminGuard }     from './guard';
+import { adminGuard, adminOwnerGuard } from './guard';
 
 const loginSchema = z.object({
   password: z.string().min(1),
@@ -28,7 +28,12 @@ const loginSchema = z.object({
 });
 
 const codeSchema  = z.object({ code: z.string().min(1).max(64) });
-const tokenSchema = z.object({ name: z.string().min(1).max(80) });
+const tokenSchema = z.object({
+  name: z.string().min(1).max(80),
+  // Access level for the minted token (Phase 6.5). Defaults to owner so existing callers
+  // and integrations are unchanged; a viewer token can read but never mutate.
+  role: z.enum(['owner', 'viewer']).default('owner'),
+});
 
 function bearer(req: { headers: Record<string, unknown> }): string {
   const h = req.headers.authorization;
@@ -50,7 +55,7 @@ export default async function adminAuthRoutes(fastify: FastifyInstance) {
 
     if (result.ok) {
       metrics.adminLogin('success');
-      return reply.send({ token: result.token, expiresIn: result.expiresIn });
+      return reply.send({ token: result.token, expiresIn: result.expiresIn, role: result.role });
     }
 
     if (result.reason === 'locked_out') {
@@ -93,7 +98,7 @@ export default async function adminAuthRoutes(fastify: FastifyInstance) {
 
   // Mints a secret and returns it once. Enforcement does not change until the secret
   // is confirmed, so an abandoned enrolment cannot lock anyone out.
-  fastify.post('/admin/auth/totp/enrol', adminGuard, async (_req, reply) => {
+  fastify.post('/admin/auth/totp/enrol', adminOwnerGuard, async (_req, reply) => {
     if (await auth.isTwoFactorEnabled()) {
       return reply.code(409).send({ error: 'Two-factor authentication is already enabled. Disable it first to re-enrol.' });
     }
@@ -101,7 +106,7 @@ export default async function adminAuthRoutes(fastify: FastifyInstance) {
     return reply.send({ secret, otpauthUri });
   });
 
-  fastify.post('/admin/auth/totp/confirm', adminGuard, async (request, reply) => {
+  fastify.post('/admin/auth/totp/confirm', adminOwnerGuard, async (request, reply) => {
     const parsed = codeSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'code is required' });
 
@@ -112,7 +117,7 @@ export default async function adminAuthRoutes(fastify: FastifyInstance) {
     return reply.send({ success: true, recoveryCodes });
   });
 
-  fastify.post('/admin/auth/totp/disable', adminGuard, async (request, reply) => {
+  fastify.post('/admin/auth/totp/disable', adminOwnerGuard, async (request, reply) => {
     const parsed = codeSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'code is required' });
 
@@ -121,7 +126,7 @@ export default async function adminAuthRoutes(fastify: FastifyInstance) {
     return reply.send({ success: true });
   });
 
-  fastify.post('/admin/auth/recovery-codes', adminGuard, async (request, reply) => {
+  fastify.post('/admin/auth/recovery-codes', adminOwnerGuard, async (request, reply) => {
     const parsed = codeSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'code is required' });
     if (!await auth.isTwoFactorEnabled()) return reply.code(409).send({ error: 'Two-factor authentication is not enabled.' });
@@ -141,14 +146,14 @@ export default async function adminAuthRoutes(fastify: FastifyInstance) {
     return reply.send({ tokens: await auth.listAdminApiTokens() });
   });
 
-  fastify.post('/admin/tokens', adminGuard, async (request, reply) => {
+  fastify.post('/admin/tokens', adminOwnerGuard, async (request, reply) => {
     const parsed = tokenSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'name is required' });
-    const token = await auth.createAdminApiToken(parsed.data.name);
+    const token = await auth.createAdminApiToken(parsed.data.name, parsed.data.role);
     return reply.code(201).send({ token }); // plaintext returned once
   });
 
-  fastify.delete('/admin/tokens/:id', adminGuard, async (request, reply) => {
+  fastify.delete('/admin/tokens/:id', adminOwnerGuard, async (request, reply) => {
     const { id } = request.params as { id: string };
     await auth.revokeAdminApiToken(id);
     return reply.send({ success: true });

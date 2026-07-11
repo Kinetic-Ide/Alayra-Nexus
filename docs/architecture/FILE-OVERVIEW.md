@@ -53,7 +53,7 @@ for the layering rule and the request path.
 |---|---|
 | `proxy.ts` | `/v1/chat/completions`, `/v1/messages`, `/v1/embeddings`, `/v1/completions`, `/v1/images/generations`, `/v1/audio/speech`, `/v1/audio/transcriptions`, `/v1/models` |
 | `admin/index.ts` | Registers the sub-routers below |
-| `admin/guard.ts` | `adminGuard` — the single place admin auth is applied |
+| `admin/guard.ts` | `adminGuard` (auth) and `adminOwnerGuard` (auth + `requireOwner`) — the single place admin auth and the RBAC owner gate are applied |
 | `admin/auth.routes.ts` | `/admin/login` (the one unguarded admin route), TOTP, recovery codes, API tokens |
 | `admin/system.routes.ts` | Dashboard config, health, API-key management, routing status, cache bust |
 | `admin/settings.routes.ts` | SSRF, guardrails, cost routing, response cache, notifications, raw settings |

@@ -22,7 +22,7 @@ import { prisma }              from '../../lib/prisma';
 import { randomUUID, createHash, randomBytes } from 'crypto';
 import { redis }               from '../../lib/redis';
 import { z }                   from 'zod';
-import { adminGuard }           from './guard';
+import { adminGuard, adminOwnerGuard } from './guard';
 
 export default async function adminTeamsRoutes(fastify: FastifyInstance) {
   // ── Teams ─────────────────────────────────────────────────────────
@@ -61,20 +61,20 @@ export default async function adminTeamsRoutes(fastify: FastifyInstance) {
     return reply.send({ teams: withSpend });
   });
 
-  fastify.post('/admin/teams', adminGuard, async (request, reply) => {
+  fastify.post('/admin/teams', adminOwnerGuard, async (request, reply) => {
     const body = teamSchema.parse(request.body);
     const team = await prisma.team.create({ data: { id: randomUUID(), ...body } });
     return reply.code(201).send({ team });
   });
 
-  fastify.patch('/admin/teams/:id', adminGuard, async (request, reply) => {
+  fastify.patch('/admin/teams/:id', adminOwnerGuard, async (request, reply) => {
     const { id } = request.params as { id: string };
     const body   = teamSchema.partial().parse(request.body);
     const team   = await prisma.team.update({ where: { id }, data: body });
     return reply.send({ team });
   });
 
-  fastify.delete('/admin/teams/:id', adminGuard, async (request, reply) => {
+  fastify.delete('/admin/teams/:id', adminOwnerGuard, async (request, reply) => {
     const { id } = request.params as { id: string };
     // Access keys survive their team (NexusTeamKey.teamId → NULL), losing only the
     // budget cap. The team's *owned provider keys* (BYOK) are deleted with it — a
@@ -92,7 +92,7 @@ export default async function adminTeamsRoutes(fastify: FastifyInstance) {
     return reply.send({ keys: keys.map(k => ({ id: k.id, name: k.name, maskedKey: k.maskedKey, team: k.team, createdAt: k.createdAt })) });
   });
 
-  fastify.post('/admin/team-keys', adminGuard, async (request, reply) => {
+  fastify.post('/admin/team-keys', adminOwnerGuard, async (request, reply) => {
     const { name, teamId } = request.body as { name: string; teamId?: string | null };
     if (!name?.trim()) return reply.code(400).send({ error: 'name is required' });
     if (teamId) {
@@ -110,7 +110,7 @@ export default async function adminTeamsRoutes(fastify: FastifyInstance) {
     });
   });
 
-  fastify.patch('/admin/team-keys/:id', adminGuard, async (request, reply) => {
+  fastify.patch('/admin/team-keys/:id', adminOwnerGuard, async (request, reply) => {
     const { id }     = request.params as { id: string };
     const { teamId } = request.body as { teamId: string | null };
     if (teamId) {
@@ -128,7 +128,7 @@ export default async function adminTeamsRoutes(fastify: FastifyInstance) {
     return reply.send({ key: decrypt(tk.encryptedKey) });
   });
 
-  fastify.delete('/admin/team-keys/:id', adminGuard, async (request, reply) => {
+  fastify.delete('/admin/team-keys/:id', adminOwnerGuard, async (request, reply) => {
     const { id } = request.params as { id: string };
     await prisma.nexusTeamKey.delete({ where: { id } });
     await redis.del(`nexus:teamkey:${id}`);

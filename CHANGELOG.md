@@ -9,6 +9,18 @@ semver. The legacy ids `kinetic-nexus-1` and `nexus` remain accepted as aliases.
 
 ## [Unreleased]
 
+### Added
+- **Role-based access control for the admin panel (Phase 6.5).** Admin credentials now carry
+  a role — **owner** (full control) or **viewer** (read-only: every page and figure is
+  visible, but any action that changes state is refused). Enforced server-side in one shared
+  place, so every mutating `/admin` route requires an owner and a route added later inherits
+  the gate automatically; reads stay open to either role. A viewer API token can be minted
+  (`POST /admin/tokens` with `role: "viewer"`) and used to sign in to the dashboard directly,
+  giving a teammate or a monitoring tool read-only access without ever sharing the master
+  password. The dashboard shows a read-only banner for viewers and surfaces a denied action
+  as a clear message. Additive migration (a defaulted `role` column); the master password and
+  every existing token remain owners, so upgrading changes nothing until you create a viewer.
+
 ### Changed
 - **Notification delivery integrity.** A non-2xx reply from Resend (a rotated key, an
   unverified sender) or a webhook endpoint is now treated as a failure rather than silently

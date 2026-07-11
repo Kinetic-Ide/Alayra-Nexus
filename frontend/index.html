@@ -42,6 +42,13 @@
     <button class="btn-secondary btn-sm" onclick="doLogout()">Sign out</button>
   </div>
 
+  <!-- Read-only banner (Phase 6.5): shown for a viewer session. The server enforces the
+       restriction; this states it plainly so a denied action is never a surprise. -->
+  <div id="readonly-banner" style="display:none;align-items:center;gap:8px;padding:8px 16px;font-size:13px;background:rgba(234,179,8,0.12);border-bottom:1px solid rgba(234,179,8,0.35);color:var(--text)">
+    <span style="font-size:15px">👁️</span>
+    <span><strong>Read-only access.</strong> You are signed in with a viewer credential — you can browse every tab, but changes are disabled. Sign in with an owner credential to make changes.</span>
+  </div>
+
   <div class="shell">
     <nav class="sidebar">
       <div class="nav-item active" data-tab="connect" onclick="showTab('connect')">

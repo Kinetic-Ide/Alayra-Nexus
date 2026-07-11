@@ -11,6 +11,9 @@ export const state = {
    * discarded, so an XSS on this page cannot lift it out of storage.
    */
   token:         sessionStorage.getItem('nx_token') || '',
+  /** The signed-in credential's role (Phase 6.5): 'owner' (full) or 'viewer' (read-only).
+   *  The server enforces it on every route; the dashboard uses it only to reflect state. */
+  role:          sessionStorage.getItem('nx_role') || 'owner',
   teamKeys:      [],
   modelRegistry: [],
 };
@@ -23,7 +26,9 @@ export const state = {
 export function logout() {
   const token = state.token;
   sessionStorage.removeItem('nx_token');
+  sessionStorage.removeItem('nx_role');
   state.token = '';
+  state.role  = 'owner';
   const done = () => location.reload();
   if (!token || token === 'demo') return done();
   fetch('/admin/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } })

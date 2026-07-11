@@ -19,7 +19,7 @@ import { createHash }   from 'crypto';
 import { getSetting }   from '../services/settings.service';
 import { prisma }       from '../lib/prisma';
 import { safeEqual }    from '../lib/timingSafe';
-import { isValidSession, verifyAdminApiToken, isTwoFactorEnabled } from '../services/adminAuth.service';
+import { getSessionRole, verifyAdminApiToken, isTwoFactorEnabled } from '../services/adminAuth.service';
 
 export async function verifyApiKey(request: FastifyRequest, reply: FastifyReply) {
   // Accept both `Authorization: Bearer <key>` (OpenAI clients) and `x-api-key: <key>`
@@ -81,8 +81,14 @@ export async function verifyAdminPassword(request: FastifyRequest, reply: Fastif
   }
   const token = auth.slice(7);
 
-  if (await isValidSession(token)) return;
-  if (await verifyAdminApiToken(token)) return;
+  // Resolve the caller's role and attach it, so requireOwner (and any handler) can read it.
+  // Order mirrors the credentials a caller may present: a dashboard session, an admin API
+  // token, then the raw password (owner, and only while no second factor is confirmed).
+  const sessionRole = await getSessionRole(token);
+  if (sessionRole) { request.adminRole = sessionRole; return; }
+
+  const tokenRole = await verifyAdminApiToken(token);
+  if (tokenRole) { request.adminRole = tokenRole; return; }
 
   if (await isTwoFactorEnabled()) {
     return reply.code(401).send({
@@ -93,6 +99,7 @@ export async function verifyAdminPassword(request: FastifyRequest, reply: Fastif
   if (!safeEqual(token, process.env.ADMIN_PASSWORD)) {
     return reply.code(401).send({ error: 'Unauthorized' });
   }
+  request.adminRole = 'owner'; // the raw admin password is the owner
 }
 
 /**

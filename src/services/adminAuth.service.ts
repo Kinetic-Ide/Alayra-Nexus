@@ -196,18 +196,38 @@ export async function clearFailedAttempts(source: string): Promise<void> {
   await redis.del(ATTEMPT_PREFIX + sha256(source), LOCKOUT_PREFIX + sha256(source));
 }
 
+// ── Roles (Phase 6.5 RBAC) ──────────────────────────────────────────────────────
+// Two levels: "owner" holds full control; "viewer" is read-only (GET routes only, every
+// mutation refused). The raw admin password and every dashboard login are always owner;
+// a viewer credential can only be a viewer-scoped admin API token. Anything unrecognised
+// resolves to owner, so a session or token minted before 6.5 keeps the access it had.
+
+export type AdminRole = 'owner' | 'viewer';
+
+export function asRole(v: string | null | undefined): AdminRole {
+  return v === 'viewer' ? 'viewer' : 'owner';
+}
+
 // ── Sessions ──────────────────────────────────────────────────────────────────
 
-export async function createSession(): Promise<{ token: string; expiresIn: number }> {
+export async function createSession(role: AdminRole = 'owner'): Promise<{ token: string; expiresIn: number }> {
   const token = randomBytes(32).toString('hex');
-  await redis.set(SESSION_PREFIX + sha256(token), '1', 'EX', SESSION_TTL_SECONDS);
+  // The session value is now the role (was a bare '1'); getSessionRole reads it back, and an
+  // older '1'-valued session resolves to owner via asRole, so upgrades keep working.
+  await redis.set(SESSION_PREFIX + sha256(token), role, 'EX', SESSION_TTL_SECONDS);
   return { token, expiresIn: SESSION_TTL_SECONDS };
 }
 
-/** Sessions are stored by hash, so a Redis dump cannot be replayed as a session. */
+/** The role a live session carries, or null when it is absent/expired. Stored by hash, so a
+ *  Redis dump cannot be replayed as a session. */
+export async function getSessionRole(token: string): Promise<AdminRole | null> {
+  if (!token) return null;
+  const v = await redis.get(SESSION_PREFIX + sha256(token));
+  return v === null ? null : asRole(v);
+}
+
 export async function isValidSession(token: string): Promise<boolean> {
-  if (!token) return false;
-  return (await redis.exists(SESSION_PREFIX + sha256(token))) === 1;
+  return (await getSessionRole(token)) !== null;
 }
 
 export async function destroySession(token: string): Promise<void> {
@@ -217,7 +237,7 @@ export async function destroySession(token: string): Promise<void> {
 // ── Login ─────────────────────────────────────────────────────────────────────
 
 export type LoginResult =
-  | { ok: true; token: string; expiresIn: number }
+  | { ok: true; token: string; expiresIn: number; role: AdminRole }
   | { ok: false; reason: 'locked_out'; retryAfter: number }
   | { ok: false; reason: 'totp_required' }
   | { ok: false; reason: 'invalid' };
@@ -255,6 +275,17 @@ export async function login(password: string, code: string | undefined, source: 
     return r;
   };
 
+  // An admin API token may be presented in place of the password, so a viewer (or an
+  // owner) can obtain a dashboard session without the master password. Tokens already
+  // bypass the second factor by design — they are for callers that cannot present one —
+  // so this path mints a session at the token's own role and does not consult TOTP.
+  const tokenRole = await verifyAdminApiToken(password);
+  if (tokenRole) {
+    await clearFailedAttempts(source);
+    const { token, expiresIn } = await createSession(tokenRole);
+    return { ok: true, token, expiresIn, role: tokenRole };
+  }
+
   const expected = process.env.ADMIN_PASSWORD;
   if (!safeEqual(password, expected)) {
     const { lockedOut, retryAfter: ra } = await fail();
@@ -279,8 +310,8 @@ export async function login(password: string, code: string | undefined, source: 
   }
 
   await clearFailedAttempts(source);
-  const { token, expiresIn } = await createSession();
-  return { ok: true, token, expiresIn };
+  const { token, expiresIn } = await createSession('owner');
+  return { ok: true, token, expiresIn, role: 'owner' };
 }
 
 // ── Admin API tokens ──────────────────────────────────────────────────────────
@@ -289,33 +320,34 @@ export async function login(password: string, code: string | undefined, source: 
 
 const TOKEN_PREFIX = 'nxa_';
 
-export async function createAdminApiToken(name: string): Promise<{ id: string; name: string; token: string; maskedKey: string }> {
+export async function createAdminApiToken(name: string, role: AdminRole = 'owner'): Promise<{ id: string; name: string; token: string; maskedKey: string; role: AdminRole }> {
   const token = TOKEN_PREFIX + randomBytes(24).toString('hex');
   const maskedKey = `${token.slice(0, 8)}••••${token.slice(-4)}`;
   const row = await prisma.adminApiToken.create({
-    data: { name, tokenHash: sha256(token), maskedKey },
+    data: { name, tokenHash: sha256(token), maskedKey, role },
   });
-  return { id: row.id, name: row.name, token, maskedKey };
+  return { id: row.id, name: row.name, token, maskedKey, role: asRole(row.role) };
 }
 
 /**
- * Resolve a bearer token to a live admin API token. An indexed hash lookup, so no
- * timing comparison is needed and the plaintext is never stored.
+ * Resolve a bearer token to a live admin API token, returning its role — or null when the
+ * token is not one of ours, is revoked, or is unknown. An indexed hash lookup, so no timing
+ * comparison is needed and the plaintext is never stored.
  */
-export async function verifyAdminApiToken(token: string): Promise<boolean> {
-  if (!token.startsWith(TOKEN_PREFIX)) return false;
+export async function verifyAdminApiToken(token: string): Promise<AdminRole | null> {
+  if (!token.startsWith(TOKEN_PREFIX)) return null;
   const row = await prisma.adminApiToken.findUnique({ where: { tokenHash: sha256(token) } });
-  if (!row || row.revokedAt) return false;
+  if (!row || row.revokedAt) return null;
   // Fire and forget: a last-used timestamp must never slow down or fail a request.
   void prisma.adminApiToken.update({ where: { id: row.id }, data: { lastUsedAt: new Date() } }).catch(() => {});
-  return true;
+  return asRole(row.role);
 }
 
 export async function listAdminApiTokens() {
   return prisma.adminApiToken.findMany({
     where:   { revokedAt: null },
     orderBy: { createdAt: 'desc' },
-    select:  { id: true, name: true, maskedKey: true, lastUsedAt: true, createdAt: true },
+    select:  { id: true, name: true, maskedKey: true, role: true, lastUsedAt: true, createdAt: true },
   });
 }
 

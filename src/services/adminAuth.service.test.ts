@@ -257,17 +257,68 @@ describe('admin API tokens', () => {
     expect(stored.maskedKey).not.toBe(token);
   });
 
-  it('accepts a live token and rejects a revoked one', async () => {
+  it('resolves a live token to its role and rejects a revoked one', async () => {
+    prismaMock.adminApiToken.update.mockResolvedValue({});
+    prismaMock.adminApiToken.findUnique.mockResolvedValueOnce({ id: 't1', revokedAt: null, role: 'owner' });
+    expect(await auth.verifyAdminApiToken('nxa_abc')).toBe('owner');
+
+    prismaMock.adminApiToken.findUnique.mockResolvedValueOnce({ id: 't2', revokedAt: null, role: 'viewer' });
+    expect(await auth.verifyAdminApiToken('nxa_view')).toBe('viewer');
+
+    prismaMock.adminApiToken.findUnique.mockResolvedValueOnce({ id: 't1', revokedAt: new Date(), role: 'owner' });
+    expect(await auth.verifyAdminApiToken('nxa_abc')).toBeNull();
+  });
+
+  it('treats a token row with no role as owner (upgrade-safe)', async () => {
     prismaMock.adminApiToken.update.mockResolvedValue({});
     prismaMock.adminApiToken.findUnique.mockResolvedValueOnce({ id: 't1', revokedAt: null });
-    expect(await auth.verifyAdminApiToken('nxa_abc')).toBe(true);
-
-    prismaMock.adminApiToken.findUnique.mockResolvedValueOnce({ id: 't1', revokedAt: new Date() });
-    expect(await auth.verifyAdminApiToken('nxa_abc')).toBe(false);
+    expect(await auth.verifyAdminApiToken('nxa_old')).toBe('owner');
   });
 
   it('rejects a token without the prefix without touching the database', async () => {
-    expect(await auth.verifyAdminApiToken('some-session-token')).toBe(false);
+    expect(await auth.verifyAdminApiToken('some-session-token')).toBeNull();
     expect(prismaMock.adminApiToken.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('mints a viewer token when asked, defaulting to owner', async () => {
+    prismaMock.adminApiToken.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: 't1', name: 'ci', ...data }));
+    expect((await auth.createAdminApiToken('reader', 'viewer')).role).toBe('viewer');
+    expect((await auth.createAdminApiToken('ci')).role).toBe('owner');
+  });
+});
+
+describe('roles (Phase 6.5)', () => {
+  beforeEach(noTotpEnrolled);
+
+  it('a session carries its role, and an unknown token has none', async () => {
+    const owner = await auth.createSession();          // defaults to owner
+    const viewer = await auth.createSession('viewer');
+    expect(await auth.getSessionRole(owner.token)).toBe('owner');
+    expect(await auth.getSessionRole(viewer.token)).toBe('viewer');
+    expect(await auth.getSessionRole('nope')).toBeNull();
+  });
+
+  it('a legacy "1"-valued session resolves to owner', async () => {
+    expect(auth.asRole('1')).toBe('owner');
+    expect(auth.asRole('viewer')).toBe('viewer');
+    expect(auth.asRole(null)).toBe('owner');
+  });
+
+  it('password login yields an owner session with role in the result', async () => {
+    const res = await auth.login(PASSWORD, undefined, SOURCE);
+    expect(res).toMatchObject({ ok: true, role: 'owner' });
+    if (res.ok) expect(await auth.getSessionRole(res.token)).toBe('owner');
+  });
+
+  it('an admin token used as the password mints a session at the token’s role, no TOTP', async () => {
+    // A viewer token presented in the password field logs in read-only, even with 2FA on.
+    const secret = generateTotpSecret();
+    totpEnabled(secret);
+    prismaMock.adminApiToken.update.mockResolvedValue({});
+    prismaMock.adminApiToken.findUnique.mockResolvedValue({ id: 't1', revokedAt: null, role: 'viewer' });
+
+    const res = await auth.login('nxa_sometoken', undefined, SOURCE);
+    expect(res).toMatchObject({ ok: true, role: 'viewer' });
+    if (res.ok) expect(await auth.getSessionRole(res.token)).toBe('viewer');
   });
 });

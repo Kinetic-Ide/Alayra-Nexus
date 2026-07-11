@@ -23,6 +23,9 @@ import 'fastify';
 declare module 'fastify' {
   interface FastifyRequest {
     teamKeyId?: string;
+    /** The admin caller's role (Phase 6.5), set by verifyAdminPassword: "owner" (full) or
+     *  "viewer" (read-only). requireOwner reads it to gate mutating routes. */
+    adminRole?: 'owner' | 'viewer';
     /** Present when the key belongs to a Team — carries what budget enforcement and BYOK scoping need. */
     team?: {
       id:           string;

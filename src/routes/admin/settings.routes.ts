@@ -25,7 +25,7 @@ import { getSsrfConfig, setSsrfConfig } from '../../services/ssrf.service';
 import { getNotificationConfigForUI, setNotificationConfig } from '../../services/notifications.service';
 import { prisma }              from '../../lib/prisma';
 import { z }                   from 'zod';
-import { adminGuard }           from './guard';
+import { adminGuard, adminOwnerGuard } from './guard';
 
 export default async function adminSettingsRoutes(fastify: FastifyInstance) {
   // ── SSRF / network security ───────────────────────────────────────
@@ -40,7 +40,7 @@ export default async function adminSettingsRoutes(fastify: FastifyInstance) {
     allowList:    z.array(z.string().regex(/^[a-z0-9.:_-]+$/i, 'Use host or host:port only')).max(50),
   });
 
-  fastify.put('/admin/settings/ssrf', adminGuard, async (request, reply) => {
+  fastify.put('/admin/settings/ssrf', adminOwnerGuard, async (request, reply) => {
     const body = ssrfSchema.parse(request.body);
     await setSsrfConfig(body.allowPrivate, body.allowList);
     return reply.send(await getSsrfConfig());
@@ -65,7 +65,7 @@ export default async function adminSettingsRoutes(fastify: FastifyInstance) {
     })).max(100),
   });
 
-  fastify.put('/admin/settings/guardrails', adminGuard, async (request, reply) => {
+  fastify.put('/admin/settings/guardrails', adminOwnerGuard, async (request, reply) => {
     const body = guardrailSchema.parse(request.body);
     // Reject rules whose regex will not compile, so a bad pattern is caught at
     // save time rather than silently skipped on the request path.
@@ -85,7 +85,7 @@ export default async function adminSettingsRoutes(fastify: FastifyInstance) {
 
   const routingSchema = z.object({ costWeight: z.number().min(0).max(1) });
 
-  fastify.put('/admin/settings/routing', adminGuard, async (request, reply) => {
+  fastify.put('/admin/settings/routing', adminOwnerGuard, async (request, reply) => {
     const body = routingSchema.parse(request.body);
     await setCostWeight(body.costWeight);
     return reply.send(await getRoutingConfigForUI());
@@ -102,7 +102,7 @@ export default async function adminSettingsRoutes(fastify: FastifyInstance) {
     ttlSeconds: z.number().int().min(1).max(2592000), // up to 30 days
   });
 
-  fastify.put('/admin/settings/cache', adminGuard, async (request, reply) => {
+  fastify.put('/admin/settings/cache', adminOwnerGuard, async (request, reply) => {
     const body = cacheSchema.parse(request.body);
     await setCacheConfig(body.enabled, body.ttlSeconds);
     return reply.send(await getCacheConfigForUI());
@@ -131,7 +131,7 @@ export default async function adminSettingsRoutes(fastify: FastifyInstance) {
     windowSeconds: z.number().int().min(60).max(86400).default(3600),
   });
 
-  fastify.put('/admin/settings/notifications', adminGuard, async (request, reply) => {
+  fastify.put('/admin/settings/notifications', adminOwnerGuard, async (request, reply) => {
     const body = notificationsSchema.parse(request.body);
     await setNotificationConfig(body);
     return reply.send(await getNotificationConfigForUI());
@@ -148,7 +148,7 @@ export default async function adminSettingsRoutes(fastify: FastifyInstance) {
     return reply.send({ settings: safe });
   });
 
-  fastify.post('/admin/settings', adminGuard, async (request, reply) => {
+  fastify.post('/admin/settings', adminOwnerGuard, async (request, reply) => {
     const { key, value } = request.body as { key: string; value: string };
     if (key === 'ENCRYPTION_SECRET') return reply.code(403).send({ error: 'Forbidden' });
     await setSetting(key, value);

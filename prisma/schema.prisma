@@ -158,6 +158,9 @@ model AdminApiToken {
   name       String
   tokenHash  String    @unique
   maskedKey  String
+  // Access level (Phase 6.5 RBAC): "owner" = full control, "viewer" = read-only (GET
+  // routes; every mutation is refused). Defaults to owner so existing tokens are unchanged.
+  role       String    @default("owner")
   lastUsedAt DateTime?
   revokedAt  DateTime?
   createdAt  DateTime  @default(now())

@@ -11,6 +11,46 @@
 
 ---
 
+**Date:** 2026-07-11 · Session 36  
+**Author:** Abbas  
+**Title:** Phase 6.5 — Role-Based Access Control  
+
+**Summary:**  
+Until now the gateway's control panel was all-or-nothing: whoever could get in could do
+anything — read the numbers, but also rotate keys, change budgets, alter security settings,
+mint new credentials. For a single operator that is fine, but the moment a second person is
+involved it is too much. A colleague who only needs to watch usage, a monitoring tool that
+only needs to read health, a contractor you want to show the dashboard to — none of them
+should have to hold the one credential that can change everything. This phase introduces the
+distinction that fixes that: an access level carried by every admin credential.
+
+There are two levels. An **owner** has the full control the gateway has always offered. A
+**viewer** may look but not touch — every page still opens and every figure is still visible,
+but anything that would change the system is refused. The rule is enforced where it must be,
+at the server: reading is open to either level, and every action that alters state requires an
+owner, checked in a single shared place so that a route added tomorrow inherits the protection
+without anyone having to remember to add it. The dashboard reflects the same truth rather than
+pretending otherwise — a viewer sees a clear banner explaining the read-only state, and any
+attempt that the server would refuse is met with a plain message instead of a silent failure.
+
+Two things make this fit the product as it actually is. First, it changes nothing for anyone
+already using the gateway: an existing credential, and the master password itself, are always
+owners, so upgrading is invisible until you choose to create a read-only credential. Second,
+a read-only credential can be handed out without handing over the master password at all — a
+viewer token can be minted for a person or a tool, and it can be used to sign in to the
+dashboard directly, arriving already limited to what it is allowed to see. Access can be
+granted narrowly, and taken back, without ever exposing the credential that protects
+everything else.
+
+The change to stored data was a single additive field with a safe default, so nothing that
+exists today is altered by the upgrade.
+
+**Verification:** Full green gate — linter clean, type-checker clean, full test suite passing
+with new coverage for role resolution, the owner-only gate, and signing in with a scoped
+credential; production build clean; dependency audit reporting zero vulnerabilities.
+
+---
+
 **Date:** 2026-07-11 · Session 35  
 **Author:** Abbas  
 **Title:** Hardening — Notification Delivery and Analytics Aggregation  
