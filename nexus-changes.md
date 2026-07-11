@@ -7,7 +7,53 @@
 
 ---
 
-## 2026-07-10
+## 2026-07-11
+
+---
+
+**Date:** 2026-07-11 · Session 34  
+**Author:** Abbas  
+**Title:** Phase 6.4b — Budget and Capacity Alerts  
+
+**Summary:**  
+The previous session gave the gateway a voice for the troubles it discovers quietly in the
+background — a dead credential, a failing upstream, someone at the admin door. This session
+extends that voice to the two things an operator most wants to hear about while traffic is
+actually flowing: money, and a refusal to serve. Both are conditions that reveal themselves
+only in the middle of a live request, which is why they were deliberately held back from the
+first pass — the path a request travels is the most sensitive part of the system, and it was
+worth instrumenting it carefully rather than in the same breath as everything else.
+
+The first alert is about spend. Every team may be given a budget for a window — a day, a
+week, a month — and every completed request adds its real cost to that window's running
+total. The moment that total first passes eight-tenths of the limit, and again the moment it
+reaches the whole of it, a message goes out: the team is approaching its ceiling, and then,
+the team has hit it and is now being turned away until the window resets. The crossing is
+noticed as the cost is recorded, so no extra bookkeeping is added to the request; and it is
+worded to fire once as each line is crossed, not once for every request that follows, so a
+team that sits above its limit for the rest of the month is the subject of one message, not
+a thousand.
+
+The second alert is about capacity. When a request arrives and there is no healthy key left
+anywhere that can serve it, the gateway has no choice but to refuse — and a refusal that no
+one is told about is the worst kind of silence, because from the outside it looks like the
+product is simply broken. That refusal happens at a single place the routing funnels
+through, whichever kind of request it was — a chat, an embedding, an image, a transcription —
+so one tap covers them all uniformly, and the message distinguishes the two shapes the
+refusal can take: a shared pool that is momentarily out of headroom, or a team held in strict
+isolation that has run through its own keys with no fall-back permitted.
+
+Both messages travel the exact machinery built in the previous session — the same encrypted
+channels, the same detachment from the request, the same one-message-per-window quieting —
+so nothing about how alerts are delivered changed; only two new reasons to send one were
+added, each with its own on-off switch in the settings card. As with every capability here,
+the whole feature stays dark until an operator chooses to enable it. No database change was
+required; the running spend was already tracked, and reading back its new total after each
+addition was all that the budget alert needed.
+
+**Verification:** Full green gate — linter clean, type-checker clean, complete test suite
+passing with new coverage for the budget-crossing logic and the capacity tap, production
+build clean, dependency audit reporting zero vulnerabilities.
 
 ---
 

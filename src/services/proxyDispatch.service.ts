@@ -17,7 +17,7 @@
 import type { FastifyReply } from 'fastify';
 import {
   discoverBestPool, getNextCooldownSeconds,
-  reportSuccess, reportServerFailure, reportRateLimit, reportAuthFailure,
+  reportSuccess, reportServerFailure, reportRateLimit, reportAuthFailure, reportTierExhausted,
 } from './nexus.service';
 import { recordTokenUsage }     from './token.service';
 import { reconcileTpm }         from '../lib/admission';
@@ -149,7 +149,11 @@ export async function dispatchProxy(
   const route = await discoverBestPool(reserveTokens, null, scope, capability);
   if (!route) {
     observe('no_capacity');
-    if (isIsolated(scope)) metrics.byokRequest('isolated_block');
+    const isolated = isIsolated(scope);
+    if (isolated) metrics.byokRequest('isolated_block');
+    // Operator alert (Phase 6.4b): no key can serve this capability. Same uniform tap as
+    // the chat path; fire-and-forget and coalesced.
+    void reportTierExhausted(capability, isolated).catch(() => {});
     const retryAfter = await getNextCooldownSeconds();
     return reply.code(503).header('Retry-After', String(retryAfter)).send({
       error: `No available model for "${capability}". Add a ${capability}-capable model in the Models tab, or all matching keys are rate-limited (retry in ${retryAfter}s).`,
@@ -235,7 +239,7 @@ export async function dispatchProxy(
 
   const usage = {
     sessionId: `${capability}-${Date.now()}`, modelId: route.modelId ?? route.modelString, modelName: route.modelString,
-    provider: route.providerSlug, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod,
+    provider: route.providerSlug, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod, teamBudgetUsd: team?.budgetUsd,
   };
   if (billing) {
     // Non-token modality (image, speech): bill per unit, not per token. No admission

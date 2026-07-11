@@ -10,6 +10,14 @@ semver. The legacy ids `kinetic-nexus-1` and `nexus` remain accepted as aliases.
 ## [Unreleased]
 
 ### Added
+- **Budget & capacity alerts (Phase 6.4b).** Two more operator notifications, both detected
+  on a live request and reusing the Phase 6.4 engine unchanged: a team crossing **80% / 100%
+  of its budget** (caught the moment a request's cost lands — no extra read — and sent once
+  per threshold per budget window), and a capability whose keys are **all exhausted (503)**,
+  tapped uniformly at the routing boundary so it covers chat and every non-chat endpoint
+  alike. Both are fire-and-forget, off the request path, and coalesced so a sustained outage
+  or a busy over-budget team produces one message, not a flood. New per-event toggles in the
+  Settings card.
 - **Operator notifications — Resend email + webhooks (Phase 6.4).** Get alerted when the
   gateway degrades or is attacked instead of watching the dashboard: a provider key
   auto-banned, a circuit breaker opening, or an admin login locked out. Off by default;

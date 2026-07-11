@@ -17,6 +17,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   normalizeNotificationConfig, keyBannedMessage, breakerOpenedMessage, adminLockoutMessage,
+  budgetThresholdCrossed, budgetThresholdMessage, tierExhaustedMessage,
   coalesceRedisKey, DEFAULT_WINDOW_SECONDS, MIN_WINDOW_SECONDS, NOTIFY_EVENTS,
 } from './notify';
 
@@ -70,5 +71,53 @@ describe('message builders', () => {
 
   it('namespaces the coalesce Redis key', () => {
     expect(coalesceRedisKey('keyBanned:openai:x')).toBe('nexus:notify:sent:keyBanned:openai:x');
+  });
+});
+
+describe('budgetThresholdCrossed (Phase 6.4b)', () => {
+  it('detects the 80% crossing exactly once, on the step that vaults it', () => {
+    expect(budgetThresholdCrossed(7.9, 8.1, 10)).toBe(80);  // 79% → 81%
+    expect(budgetThresholdCrossed(8.1, 8.5, 10)).toBeNull(); // already past 80%, not yet 100%
+  });
+
+  it('detects the 100% crossing and reports the higher threshold when one step vaults both', () => {
+    expect(budgetThresholdCrossed(9.5, 10, 10)).toBe(100);
+    expect(budgetThresholdCrossed(1, 11, 10)).toBe(100);    // 10% → 110% in one large request
+  });
+
+  it('stays silent below 80%, when already over 100%, and with no cap', () => {
+    expect(budgetThresholdCrossed(1, 2, 10)).toBeNull();
+    expect(budgetThresholdCrossed(10.1, 12, 10)).toBeNull(); // already over — one alert, not per request
+    expect(budgetThresholdCrossed(1, 100, 0)).toBeNull();    // budgetUsd 0 / unset
+  });
+});
+
+describe('budgetThreshold + tierExhausted message builders (Phase 6.4b)', () => {
+  it('scopes the budget dedupe key to team, window and percentage', () => {
+    const m = budgetThresholdMessage({
+      teamId: 't1', teamName: 'Acme', pct: 80,
+      spendUsd: 8.4, budgetUsd: 10, period: 'monthly', windowId: '2026-07',
+    });
+    expect(m.type).toBe('budgetThreshold');
+    expect(m.dedupeKey).toBe('budgetThreshold:t1:2026-07:80');
+    expect(m.title).toContain('Acme');
+    expect(m.body).toContain('80%');
+
+    const full = budgetThresholdMessage({
+      teamId: 't1', teamName: 'Acme', pct: 100,
+      spendUsd: 10, budgetUsd: 10, period: 'monthly', windowId: '2026-07',
+    });
+    expect(full.dedupeKey).toBe('budgetThreshold:t1:2026-07:100');
+    expect(full.body).toContain('429'); // cut off
+  });
+
+  it('distinguishes an isolated tier-exhaustion from the shared pool', () => {
+    const shared = tierExhaustedMessage('chat', false);
+    expect(shared.type).toBe('tierExhausted');
+    expect(shared.dedupeKey).toBe('tierExhausted:chat:shared');
+
+    const isolated = tierExhaustedMessage('embedding', true);
+    expect(isolated.dedupeKey).toBe('tierExhausted:embedding:isolated');
+    expect(isolated.body).toContain('fall-back is disabled');
   });
 });

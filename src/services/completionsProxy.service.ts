@@ -15,7 +15,7 @@
  */
 
 import type { FastifyReply } from 'fastify';
-import { discoverBestPool, getNextCooldownSeconds, reportSuccess, reportServerFailure, reportRateLimit, reportAuthFailure } from './nexus.service';
+import { discoverBestPool, getNextCooldownSeconds, reportSuccess, reportServerFailure, reportRateLimit, reportAuthFailure, reportTierExhausted } from './nexus.service';
 import { recordTokenUsage }          from './token.service';
 import { computeReserve, countMessageTokens, countTokens } from '../lib/tokenizer';
 import { reconcileTpm }              from '../lib/admission';
@@ -241,7 +241,7 @@ export async function handleProxy(
       void recordTokenUsage({
         sessionId: `cache-${Date.now()}`, modelId: hit.model, modelName: hit.model, provider: hit.provider,
         inputTokens: hit.promptTokens, outputTokens: hit.completionTokens,
-        nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod, cached: true,
+        nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod, teamBudgetUsd: team?.budgetUsd, cached: true,
       }).catch(() => {});
       const completion = toCompletionJson(hit);
       const hitHeaders = { 'X-Nexus-Model': hit.model, 'X-Nexus-Provider': hit.provider, 'X-Nexus-Cache': 'hit' };
@@ -274,6 +274,9 @@ export async function handleProxy(
     observe('no_capacity');
     const isolated = isIsolated(scope);
     if (isolated) metrics.byokRequest('isolated_block');
+    // Operator alert (Phase 6.4b): the gateway is refusing chat traffic. Fire-and-forget,
+    // coalesced to one message per window so a sustained outage does not flood.
+    void reportTierExhausted('chat', isolated).catch(() => {});
     const retryAfter = await getNextCooldownSeconds();
     return reply
       .code(503)
@@ -417,7 +420,7 @@ export async function handleProxy(
     observe('success'); metrics.addTokens(inputTokens, outputTokens);
     storeInCache(cacheStoreKey, data, route.providerSlug, cacheCfg.ttlSeconds);
     void reconcileTpm(keyId, reserve, inputTokens + outputTokens).catch(() => {});
-    void recordTokenUsage({ sessionId, modelId: route.modelId ?? route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod }).catch(() => {});
+    void recordTokenUsage({ sessionId, modelId: route.modelId ?? route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod, teamBudgetUsd: team?.budgetUsd }).catch(() => {});
     return;
   }
 
@@ -465,7 +468,7 @@ export async function handleProxy(
     // Only cache a cleanly-completed stream; reuse the buffer already collected.
     if (!streamFailed) storeStreamInCache(cacheStoreKey, collected, route.modelString, route.providerSlug, inputTokens, outputTokens, cacheCfg.ttlSeconds);
     void reconcileTpm(keyId, reserve, inputTokens + outputTokens).catch(() => {});
-    void recordTokenUsage({ sessionId, modelId: route.modelId ?? route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod }).catch(() => {});
+    void recordTokenUsage({ sessionId, modelId: route.modelId ?? route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod, teamBudgetUsd: team?.budgetUsd }).catch(() => {});
     return;
   }
 
@@ -496,7 +499,7 @@ export async function handleProxy(
   observe('success'); metrics.addTokens(inputTokens, outputTokens);
   storeInCache(cacheStoreKey, data, route.providerSlug, cacheCfg.ttlSeconds); // cache the post-guardrails response
   void reconcileTpm(keyId, reserve, inputTokens + outputTokens).catch(() => {});
-  void recordTokenUsage({ sessionId, modelId: route.modelId ?? route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod }).catch(() => {});
+  void recordTokenUsage({ sessionId, modelId: route.modelId ?? route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod, teamBudgetUsd: team?.budgetUsd }).catch(() => {});
 
   for (const [k, v] of Object.entries(nexusHeaders)) reply.header(k, v);
   return reply.code(200).send(data);

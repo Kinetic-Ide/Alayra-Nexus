@@ -122,9 +122,11 @@ export default async function adminSettingsRoutes(fastify: FastifyInstance) {
     to:           z.array(z.string().email()).max(20).default([]),
     webhookUrl:   z.string().url().max(500).or(z.literal('')).default(''),
     events:       z.object({
-      keyBanned:     z.boolean().optional(),
-      breakerOpened: z.boolean().optional(),
-      adminLockout:  z.boolean().optional(),
+      keyBanned:       z.boolean().optional(),
+      breakerOpened:   z.boolean().optional(),
+      adminLockout:    z.boolean().optional(),
+      budgetThreshold: z.boolean().optional(),
+      tierExhausted:   z.boolean().optional(),
     }).default({}),
     windowSeconds: z.number().int().min(60).max(86400).default(3600),
   });

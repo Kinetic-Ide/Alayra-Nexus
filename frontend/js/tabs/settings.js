@@ -25,7 +25,7 @@ async function loadSettings() {
   loadNotifications();
 }
 
-const NOTIFY_EVENTS = ['keyBanned', 'breakerOpened', 'adminLockout'];
+const NOTIFY_EVENTS = ['keyBanned', 'breakerOpened', 'adminLockout', 'budgetThreshold', 'tierExhausted'];
 
 async function loadNotifications() {
   if (window._demoMode) return;

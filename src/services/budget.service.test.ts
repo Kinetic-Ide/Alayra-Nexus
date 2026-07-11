@@ -104,9 +104,19 @@ describe('addSpend', () => {
   });
 
   it('ignores zero/negative amounts', async () => {
-    await addSpend('t1', 'monthly', 0);
-    await addSpend('t1', 'monthly', -1);
+    expect(await addSpend('t1', 'monthly', 0)).toBeNull();
+    expect(await addSpend('t1', 'monthly', -1)).toBeNull();
     expect(rEval).not.toHaveBeenCalled();
+  });
+
+  it('returns the new running total when the counter exists (for threshold detection)', async () => {
+    rEval.mockResolvedValue('8.10'); // INCRBYFLOAT hands back a string
+    expect(await addSpend('t1', 'monthly', 0.10)).toBe(8.1);
+  });
+
+  it('returns null when the counter does not exist yet (Lua declined to seed)', async () => {
+    rEval.mockResolvedValue(null); // Lua false → null over RESP
+    expect(await addSpend('t1', 'monthly', 0.10)).toBeNull();
   });
 });
 

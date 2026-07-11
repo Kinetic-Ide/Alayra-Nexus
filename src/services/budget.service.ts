@@ -115,10 +115,21 @@ export async function getCurrentSpend(teamId: string, period: BudgetPeriod, now:
   return spend;
 }
 
-/** Record a completed request's cost against the team's current window. */
-export async function addSpend(teamId: string, period: BudgetPeriod, usd: number, now: Date = new Date()): Promise<void> {
-  if (!(usd > 0)) return;
-  await redis.eval(ADD_SPEND_LUA, 1, budgetRedisKey(teamId, periodKey(period, now)), String(usd));
+/**
+ * Record a completed request's cost against the team's current window, returning the new
+ * running total (USD) for the window — or null when nothing was added: a zero/negative cost,
+ * or a counter that did not yet exist (the Lua guard declines to seed a stale partial). The
+ * total lets the caller detect a budget-threshold crossing without a second read; a null
+ * simply means "no reliable total this time", and the caller skips the threshold check.
+ */
+export async function addSpend(teamId: string, period: BudgetPeriod, usd: number, now: Date = new Date()): Promise<number | null> {
+  if (!(usd > 0)) return null;
+  // INCRBYFLOAT returns the new total (a string) when the counter exists; the else branch
+  // returns Lua false, which arrives here as null.
+  const res = await redis.eval(ADD_SPEND_LUA, 1, budgetRedisKey(teamId, periodKey(period, now)), String(usd));
+  if (res == null) return null;
+  const total = parseFloat(String(res));
+  return Number.isFinite(total) ? total : null;
 }
 
 export interface BudgetVerdict {

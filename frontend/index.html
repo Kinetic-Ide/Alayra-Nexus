@@ -236,6 +236,8 @@
             <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="notify-ev-keyBanned"/><span>A provider key is auto-banned</span></label>
             <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="notify-ev-breakerOpened"/><span>A circuit breaker opens (upstream failing)</span></label>
             <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="notify-ev-adminLockout"/><span>Admin login is locked out</span></label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="notify-ev-budgetThreshold"/><span>A team reaches 80% / 100% of its budget</span></label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="notify-ev-tierExhausted"/><span>All keys for a capability are exhausted (503)</span></label>
           </div>
           <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Coalesce window (seconds) — one message per event per window</label>
           <input type="number" id="notify-window" min="60" max="86400" value="3600" style="width:160px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)"/>

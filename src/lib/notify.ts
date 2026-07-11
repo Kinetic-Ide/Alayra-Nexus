@@ -23,11 +23,11 @@
 // notifications.service. The delivery discipline is fire-and-forget: an email outage
 // must never slow or fail a proxied request, so nothing here is ever on the request path.
 
-/** The events an operator can be alerted on. Each is a rare failure or security signal
- *  tapped in the service layer, never on the per-request success path. Threshold events
- *  that must be detected on the request path (tier-exhausted 503, budget %) arrive in a
- *  follow-up so the hot path is instrumented deliberately rather than piecemeal. */
-export const NOTIFY_EVENTS = ['keyBanned', 'breakerOpened', 'adminLockout'] as const;
+/** The events an operator can be alerted on. The first three are rare failure or security
+ *  signals tapped in the service layer; the last two (Phase 6.4b) are the request-path
+ *  thresholds — a team crossing 80%/100% of its budget and a capability running out of
+ *  usable keys (503). All are detected off, or fire-and-forget from, the hot path. */
+export const NOTIFY_EVENTS = ['keyBanned', 'breakerOpened', 'adminLockout', 'budgetThreshold', 'tierExhausted'] as const;
 export type NotifyEventType = (typeof NOTIFY_EVENTS)[number];
 
 /** A fully-formed alert, ready to coalesce and deliver. `dedupeKey` identifies the
@@ -61,7 +61,7 @@ export const DEFAULT_NOTIFICATION_CONFIG: NotificationConfig = {
   from:         '',
   to:           [],
   webhookUrl:   '',
-  events:       { keyBanned: true, breakerOpened: true, adminLockout: true },
+  events:       { keyBanned: true, breakerOpened: true, adminLockout: true, budgetThreshold: true, tierExhausted: true },
   windowSeconds: DEFAULT_WINDOW_SECONDS,
 };
 
@@ -123,6 +123,51 @@ export function adminLockoutMessage(source: string): NotifyMessage {
     dedupeKey: `adminLockout:${source}`,
     title: 'Alayra Nexus: admin login locked out',
     body: `Admin sign-in was locked out after repeated failed attempts from "${source}". If that was not you, someone is trying to guess the admin password.`,
+  };
+}
+
+/**
+ * Which budget threshold, if any, a single spend increment just crossed. Pure so the
+ * request-path caller can decide to alert without any I/O. Returns the *higher* threshold
+ * when one increment vaults both (a single large request can jump 79%→110%), and null when
+ * nothing was crossed — including the common case where the team was already over the line
+ * (so a busy team past 100% produces exactly one alert, not one per subsequent request).
+ */
+export function budgetThresholdCrossed(previous: number, next: number, budgetUsd: number): 100 | 80 | null {
+  if (!(budgetUsd > 0)) return null;
+  if (previous < budgetUsd && next >= budgetUsd) return 100;
+  if (previous < 0.8 * budgetUsd && next >= 0.8 * budgetUsd) return 80;
+  return null;
+}
+
+/** A team reached 80% or 100% of its budget. `windowId` scopes the dedupe key to the current
+ *  budget period so a new month/day/week re-alerts, while the same period never double-fires. */
+export function budgetThresholdMessage(a: {
+  teamId: string; teamName: string; pct: 80 | 100;
+  spendUsd: number; budgetUsd: number; period: string; windowId: string;
+}): NotifyMessage {
+  const spend = a.spendUsd.toFixed(2);
+  const cap   = a.budgetUsd.toFixed(2);
+  return {
+    type: 'budgetThreshold',
+    dedupeKey: `budgetThreshold:${a.teamId}:${a.windowId}:${a.pct}`,
+    title: `Alayra Nexus: team "${a.teamName}" reached ${a.pct}% of its ${a.period} budget`,
+    body: a.pct >= 100
+      ? `Team "${a.teamName}" has used its entire ${a.period} budget ($${spend} of $${cap}). Its requests are now being refused with a 429 until the budget window resets.`
+      : `Team "${a.teamName}" has used ${a.pct}% of its ${a.period} budget ($${spend} of $${cap}). It will be cut off when it reaches 100%.`,
+  };
+}
+
+/** Every key able to serve a capability is exhausted — the gateway is refusing that traffic
+ *  with a 503. `isolated` distinguishes a hard-isolated BYOK team from the shared pool. */
+export function tierExhaustedMessage(capability: string, isolated: boolean): NotifyMessage {
+  return {
+    type: 'tierExhausted',
+    dedupeKey: `tierExhausted:${capability}:${isolated ? 'isolated' : 'shared'}`,
+    title: `Alayra Nexus: no capacity left for "${capability}" requests`,
+    body: isolated
+      ? `A team's own provider keys for "${capability}" are all rate-limited or unavailable, and shared-pool fall-back is disabled for it — those requests are being refused (503).`
+      : `Every provider key able to serve "${capability}" requests is currently rate-limited or unavailable. The gateway is refusing that traffic with a 503 until a key recovers or you add more keys.`,
   };
 }
 

@@ -79,7 +79,8 @@ vi.mock('./model.service',   () => ({
 vi.mock('./ssrf.service',    () => ({ getSsrfPolicy: vi.fn(async () => ({})) }));
 vi.mock('./notifications.service', () => ({ notificationsArmed: vi.fn(async () => false), notify: vi.fn(async () => {}) }));
 
-import { discoverBestPool, SHARED_SCOPE } from './nexus.service';
+import { discoverBestPool, SHARED_SCOPE, reportTierExhausted } from './nexus.service';
+import { notificationsArmed, notify } from './notifications.service';
 import { getStickyKeyId } from '../lib/sticky';
 import { admitKey }       from '../lib/admission';
 import type { RoutingScope } from '../lib/scope';
@@ -97,6 +98,23 @@ beforeEach(() => {
   // legacy pool-tier fallback (pools carry preferredModel). Model-first tests below
   // populate state.registry explicitly.
   state.registry = [];
+});
+
+describe('reportTierExhausted (Phase 6.4b)', () => {
+  it('stays silent when notifications are not armed for the event', async () => {
+    vi.mocked(notificationsArmed).mockResolvedValueOnce(false);
+    await reportTierExhausted('chat', false);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('sends one coalesced alert, tagged isolated vs shared, when armed', async () => {
+    vi.mocked(notificationsArmed).mockResolvedValueOnce(true);
+    await reportTierExhausted('embedding', true);
+    expect(notificationsArmed).toHaveBeenCalledWith('tierExhausted');
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'tierExhausted', dedupeKey: 'tierExhausted:embedding:isolated',
+    }));
+  });
 });
 
 describe('discoverBestPool — BYOK scoping', () => {

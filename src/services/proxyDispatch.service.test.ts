@@ -29,6 +29,7 @@ vi.mock('./nexus.service', () => ({
   reportServerFailure: vi.fn(async () => {}),
   reportRateLimit:     vi.fn(async () => {}),
   reportAuthFailure:   vi.fn(async () => {}),
+  reportTierExhausted: vi.fn(async () => {}),
 }));
 vi.mock('./token.service',  () => ({ recordTokenUsage: vi.fn(async () => {}) }));
 vi.mock('../lib/admission', () => ({ reconcileTpm: vi.fn(async () => {}) }));

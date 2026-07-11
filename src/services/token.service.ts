@@ -18,7 +18,9 @@ import { prisma }          from '../lib/prisma';
 import { randomUUID }      from 'crypto';
 import { getModelRegistry } from './model.service';
 import { emit }            from './usagePipeline';
-import { addSpend, type BudgetPeriod } from './budget.service';
+import { addSpend, periodKey, type BudgetPeriod } from './budget.service';
+import { notificationsArmed, notify } from './notifications.service';
+import { budgetThresholdCrossed, budgetThresholdMessage } from '../lib/notify';
 
 type Period = 'today' | '7d' | '30d' | '90d';
 
@@ -74,6 +76,10 @@ export interface RecordTokenUsageParams {
   // current budget window as soon as it is known.
   teamId?:           string;
   teamBudgetPeriod?: string;
+  // The team's spend cap for the window (Phase 6.4b). Threaded through so a threshold
+  // crossing (80% / 100%) can be detected the moment this request's cost lands, without
+  // a second budget read. null/undefined = no cap, so no threshold alert.
+  teamBudgetUsd?:    number | null;
   // A response-cache hit: no provider was called, so it costs $0 and does not
   // consume budget. Still recorded (attributed to the team) so analytics are honest.
   cached?:           boolean;
@@ -94,11 +100,20 @@ export async function recordTokenUsage(p: RecordTokenUsageParams): Promise<void>
   }
 
   // Record the request's real cost against the team's budget window (fire-and-
-  // forget — budget accounting must never block or fail a proxied request).
+  // forget — budget accounting must never block or fail a proxied request). The new
+  // running total addSpend returns lets us alert on an 80%/100% crossing (Phase 6.4b)
+  // without a second read; still entirely off the request path.
   if (p.teamId && estimatedUsd > 0) {
     const period = (p.teamBudgetPeriod === 'daily' || p.teamBudgetPeriod === 'weekly' || p.teamBudgetPeriod === 'monthly')
       ? p.teamBudgetPeriod as BudgetPeriod : 'monthly';
-    void addSpend(p.teamId, period, estimatedUsd).catch(() => {});
+    const teamId    = p.teamId;
+    const budgetUsd = p.teamBudgetUsd ?? null;
+    void addSpend(teamId, period, estimatedUsd)
+      .then((newTotal) => {
+        if (newTotal == null || budgetUsd == null) return;
+        return alertBudgetThreshold(teamId, period, newTotal - estimatedUsd, newTotal, budgetUsd);
+      })
+      .catch(() => {});
   }
 
   // Hand off to the async pipeline instead of writing to Postgres inline: the
@@ -118,6 +133,23 @@ export async function recordTokenUsage(p: RecordTokenUsageParams): Promise<void>
     nexusTeamKeyId: p.nexusTeamKeyId ?? null,
     createdAt:      new Date(),
   });
+}
+
+// Fire-and-forget operator alert (Phase 6.4b) when a team's spend crosses 80% or 100% of its
+// budget for the window. The crossing test is pure and the armed check is a cheap cached read,
+// so the team-name lookup only runs on the rare request that actually vaults a threshold and
+// only when notifications are enabled. Never awaited by recordTokenUsage.
+async function alertBudgetThreshold(
+  teamId: string, period: BudgetPeriod, previous: number, next: number, budgetUsd: number,
+): Promise<void> {
+  const pct = budgetThresholdCrossed(previous, next, budgetUsd);
+  if (!pct) return;
+  if (!(await notificationsArmed('budgetThreshold'))) return;
+  const team = await prisma.team.findUnique({ where: { id: teamId }, select: { name: true } });
+  await notify(budgetThresholdMessage({
+    teamId, teamName: team?.name ?? teamId, pct,
+    spendUsd: next, budgetUsd, period, windowId: periodKey(period),
+  }));
 }
 
 export async function getUsageSummary(period: Period = '30d', customSince?: Date, customUntil?: Date) {

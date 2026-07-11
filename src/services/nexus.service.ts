@@ -27,7 +27,7 @@ import { stripTrailingSlash, assertSafeUrl } from '../lib/url';
 import { getSsrfPolicy }     from './ssrf.service';
 import { SHARED_NAMESPACE, type RoutingScope } from '../lib/scope';
 import { notificationsArmed, notify } from './notifications.service';
-import { keyBannedMessage, breakerOpenedMessage } from '../lib/notify';
+import { keyBannedMessage, breakerOpenedMessage, tierExhaustedMessage } from '../lib/notify';
 
 export { maskKey };
 
@@ -432,6 +432,19 @@ async function alertKeyEvent(keyId: string, kind: 'banned' | 'opened', cooldownS
   await notify(kind === 'banned'
     ? keyBannedMessage(k.provider.slug, k.maskedKey)
     : breakerOpenedMessage(k.provider.slug, k.maskedKey, cooldownSeconds));
+}
+
+/**
+ * Fire-and-forget operator alert (Phase 6.4b) for a request-path 503: every key able to
+ * serve `capability` is exhausted, so the gateway is refusing that traffic. Called from the
+ * `discoverBestPool → null` boundary in both the chat and non-chat handlers, giving one
+ * uniform tap. `isolated` distinguishes a hard-isolated BYOK team from the shared pool.
+ * Armed check gates it to a cheap cached read; coalescing keeps a persistent outage to one
+ * message per window. Never awaited by the caller.
+ */
+export async function reportTierExhausted(capability: Capability, isolated: boolean): Promise<void> {
+  if (!(await notificationsArmed('tierExhausted'))) return;
+  await notify(tierExhaustedMessage(capability, isolated));
 }
 
 export async function testKey(keyId: string): Promise<{ success: boolean; latencyMs?: number; error?: string }> {
