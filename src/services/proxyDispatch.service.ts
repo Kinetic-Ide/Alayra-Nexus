@@ -56,9 +56,14 @@ export interface BillingSpec {
 
 export interface DispatchOptions {
   capability:   Capability;   // which model capability serves this endpoint
-  upstreamPath: string;       // '/embeddings' | '/completions' | '/images/generations'
+  upstreamPath: string;       // '/embeddings' | '/completions' | '/images/generations' | '/audio/speech'
   reserveTokens: number;      // TPM admission reserve
   billing?:     BillingSpec;  // set for non-token modalities; omit for token endpoints
+  // How the upstream response is read. 'json' (default) parses a JSON body; 'binary'
+  // streams the bytes back untouched (text-to-speech returns audio, not JSON), carrying
+  // the upstream Content-Type. A binary response has no usage block, so a 'binary'
+  // endpoint must bill from the request via `billing.quantityFromRequest`.
+  responseMode?: 'json' | 'binary';
   team?:        TeamContext;
   teamKeyId?:   string;
 }
@@ -98,6 +103,16 @@ export function imageQuantity(data: Record<string, unknown>): number | undefined
   return Array.isArray(data.data) ? data.data.length : undefined;
 }
 
+/** Nominal admission reserve for an /audio/speech request, from the text to be spoken. */
+export function speechReserve(body: Record<string, unknown>): number {
+  return Math.max(1, countTokens(String(body.input ?? '')));
+}
+
+/** Characters in an /audio/speech request — the unit text-to-speech is billed in. */
+export function speechCharacters(body: Record<string, unknown>): number {
+  return String(body.input ?? '').length;
+}
+
 /**
  * Forward a non-chat request through the shared routing + resilience path. `body` is a
  * plain JSON object; the model is replaced with the one routing selected, and the call
@@ -113,6 +128,7 @@ export async function dispatchProxy(
   let tier: string | undefined = undefined; // set once a route is chosen (read in the closure before then)
   const observe = (o: metrics.RequestOutcome) => metrics.observeRequest(o, tier, (Date.now() - t0) / 1000);
   const { team, teamKeyId, capability, upstreamPath, reserveTokens, billing } = opts;
+  const responseMode = opts.responseMode ?? 'json';
 
   // Team budget gate — before any provider work.
   if (team && team.budgetUsd != null) {
@@ -187,10 +203,14 @@ export async function dispatchProxy(
     return reply.code(upstream.status).send(errText);
   }
 
-  let data: Record<string, unknown>;
+  // Read the body under a timer — parsed as JSON, or as raw bytes for a binary modality
+  // (audio). A binary response is passed straight through; only its size is our concern.
+  let data: Record<string, unknown> = {};
+  let binary: Buffer | null = null;
   const bodyTimer = setTimeout(() => controller.abort(), UPSTREAM_BODY_MS);
   try {
-    data = await upstream.json() as Record<string, unknown>;
+    if (responseMode === 'binary') binary = Buffer.from(await upstream.arrayBuffer());
+    else                          data   = await upstream.json() as Record<string, unknown>;
   } catch {
     clearTimeout(bodyTimer); refund(); observe('upstream_error');
     return reply.code(504).send({ error: 'Upstream response timed out or was malformed.' });
@@ -206,8 +226,9 @@ export async function dispatchProxy(
     provider: route.providerSlug, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod,
   };
   if (billing) {
-    // Non-token modality (image): bill per unit, not per token. No admission tokens are
-    // consumed, so the reserve is refunded in full; token metrics are left untouched.
+    // Non-token modality (image, speech): bill per unit, not per token. No admission
+    // tokens are consumed, so the reserve is refunded in full; token metrics are left
+    // untouched. A binary response carries no usage block — bill from the request.
     const quantity = billing.quantityFromResponse?.(data) ?? billing.quantityFromRequest?.(body) ?? 0;
     void reconcileTpm(keyId, reserveTokens, 0).catch(() => {});
     void recordTokenUsage({ ...usage, inputTokens: 0, outputTokens: 0, unit: billing.unit, quantity }).catch(() => {});
@@ -221,5 +242,9 @@ export async function dispatchProxy(
   reply.header('X-Nexus-Model', route.modelString);
   reply.header('X-Nexus-Provider', route.providerSlug);
   reply.header('X-Nexus-Tier', route.tier);
+  if (binary) {
+    reply.header('Content-Type', upstream.headers.get('content-type') ?? 'application/octet-stream');
+    return reply.code(200).send(binary);
+  }
   return reply.code(200).send(data);
 }

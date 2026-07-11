@@ -10,6 +10,12 @@ semver. The legacy ids `kinetic-nexus-1` and `nexus` remain accepted as aliases.
 ## [Unreleased]
 
 ### Added
+- **Text-to-speech — `POST /v1/audio/speech` (Phase 6.3c).** Speech synthesis routes to a
+  model that declares the `speech` capability, through the same routing, failover,
+  circuit breaker, budgets, and analytics as every other endpoint. The upstream returns
+  audio, so the response is streamed back as raw bytes with its `Content-Type` intact
+  (no JSON re-encoding). Billed per input character against a model's
+  `speechPricePer1MChars`, reusing the per-modality usage accounting added in 6.3b.
 - **Image generation — `POST /v1/images/generations` (Phase 6.3b).** Text-to-image
   requests route to a model that declares the `image` capability, through the same
   routing, failover, circuit breaker, budgets, and analytics as every other endpoint.

@@ -20,7 +20,7 @@ import { handleProxy }    from '../services/completionsProxy.service';
 import type { CompletionsBody } from '../services/completionsProxy.service';
 import { anthropicToOpenAI } from '../lib/anthropic';
 import { createAnthropicReply } from '../lib/anthropicReply';
-import { dispatchProxy, embeddingReserve, completionReserve, imageReserve, imageQuantity } from '../services/proxyDispatch.service';
+import { dispatchProxy, embeddingReserve, completionReserve, imageReserve, imageQuantity, speechReserve, speechCharacters } from '../services/proxyDispatch.service';
 
 export default async function proxyRoutes(fastify: FastifyInstance) {
   fastify.post('/v1/chat/completions', { preHandler: [verifyApiKey] }, async (request, reply) => {
@@ -71,6 +71,20 @@ export default async function proxyRoutes(fastify: FastifyInstance) {
         quantityFromResponse: imageQuantity,
         quantityFromRequest: (b) => (typeof b.n === 'number' ? b.n : 1),
       },
+      team: request.team, teamKeyId: request.teamKeyId,
+    });
+  });
+
+  // Text-to-speech (Phase 6.3c) — served by a model with the `speech` capability. JSON
+  // in, but the upstream returns audio, so the response is streamed back as raw bytes
+  // with its Content-Type intact. Billed per input character (no usage block in a binary
+  // reply). Same routing, breaker, budget and BYOK path as every other endpoint.
+  fastify.post('/v1/audio/speech', { preHandler: [verifyApiKey] }, async (request, reply) => {
+    const body = request.body as Record<string, unknown>;
+    return dispatchProxy(body, reply, {
+      capability: 'speech', upstreamPath: '/audio/speech', reserveTokens: speechReserve(body),
+      responseMode: 'binary',
+      billing: { unit: 'character', quantityFromRequest: speechCharacters },
       team: request.team, teamKeyId: request.teamKeyId,
     });
   });

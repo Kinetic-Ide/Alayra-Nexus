@@ -45,12 +45,15 @@ function modelCost(m: Record<string, unknown>, input: number, output: number): n
   return (input / 1000) * iPer1k + (output / 1000) * oPer1k;
 }
 
-// Per-modality cost (Phase 6.3b). A non-token unit is priced as quantity × the model's
-// per-unit price. Today only "image" exists (USD per image); speech/transcription add
-// their own price fields in 6.3c. An unknown or unpriced unit costs 0, never throws.
+// Per-modality cost (Phase 6.3b/6.3c). A non-token unit is priced from the model's
+// per-unit price: images per image, synthesized speech per 1,000,000 characters (the
+// unit TTS providers publish). Transcription joins in 6.3d. An unknown or unpriced unit
+// costs 0 and never throws — accounting must never break a proxied request.
 function unitCost(m: Record<string, unknown>, unit: string, quantity: number): number {
-  const price = unit === 'image' ? (m.imagePrice as number | undefined) ?? 0 : 0;
-  return Math.max(0, quantity) * price;
+  const q = Math.max(0, quantity);
+  if (unit === 'image')     return q * ((m.imagePrice as number | undefined) ?? 0);
+  if (unit === 'character') return (q / 1_000_000) * ((m.speechPricePer1MChars as number | undefined) ?? 0);
+  return 0;
 }
 
 export interface RecordTokenUsageParams {

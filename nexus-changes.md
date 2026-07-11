@@ -11,6 +11,52 @@
 
 ---
 
+**Date:** 2026-07-11 · Session 31  
+**Author:** Abbas  
+**Title:** Phase 6.3c — Text-to-Speech  
+
+**Summary:**  
+Every endpoint the gateway has offered until now returns text. A chat reply, an
+embedding vector, an autocompletion, the description of a generated image — all of them
+arrive as a document the gateway reads, accounts for, and hands on. Speech synthesis is
+the first request whose answer is not a document at all. What comes back from the
+provider is a piece of audio, a stream of bytes that means nothing if it is parsed as
+text and is corrupted if it is re-encoded as one. This phase teaches the shared
+transport to carry that kind of reply.
+
+The change is contained. A request for spoken audio is still ordinary text going out —
+the words to be spoken, the chosen voice — so it travels the same path as the endpoints
+before it and picks a model the operator has marked as speech-capable. Only the return
+trip is new: instead of reading the reply as data, the gateway passes the bytes back
+exactly as they arrived and preserves the label that tells the caller what kind of audio
+it is holding. Nothing about the routing, the failover, the budgets, or the circuit
+breaker changes; a single switch decides whether a reply is read as a document or as raw
+sound, and everything else is shared.
+
+Billing followed the same principle set down in the previous phase. Synthesized speech
+is not priced by tokens; it is priced by the number of characters spoken, which is
+something the request itself already tells us — there is no need to inspect the audio
+that comes back, which is fortunate, since it carries no account of itself. So the
+gateway measures the text it was asked to speak and records it in the unit providers
+actually publish their prices in, a rate per million characters, against a price the
+operator sets on the model. The per-unit accounting added for images last time needed no
+change to hold a second modality, which was the reason for building it that way.
+
+One half of audio remains for the next phase, and again for a real reason rather than
+caution. Turning speech back into text is the mirror image of this work: the recording
+is uploaded rather than described, which is a different manner of carrying a request than
+anything the gateway does today, and the natural way to price it is by the length of the
+audio, which the provider does not disclose unless the caller gives up the format they
+asked for. That is the whole of the phase that follows, and it will reuse the accounting
+and the routing this one leaves in place. Keeping speech synthesis on its own held this
+change small and entirely covered by tests: the audio is returned intact with its type
+preserved, and the characters of the request are billed as their own unit rather than as
+tokens, all confirmed through the same stubbed routing the other endpoints use.
+
+**Green gate:** lint 0 · typecheck 0 · 304 tests pass (+2) · build 0 · npm audit 0 vulnerabilities.
+
+---
+
 **Date:** 2026-07-11 · Session 30  
 **Author:** Abbas  
 **Title:** Phase 6.3b — Image Generation and Per-Modality Billing  

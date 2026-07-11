@@ -37,7 +37,7 @@ vi.mock('./ssrf.service',   () => ({ getSsrfPolicy: vi.fn(async () => ({})) }));
 vi.mock('./byok.service',   () => ({ resolveRequestScope: vi.fn(async () => ({ ownerTeamId: null, fallbackToShared: true, namespace: 'shared' })) }));
 vi.mock('./budget.service', () => ({ checkTeamBudget: vi.fn(async () => ({ allowed: true })) }));
 
-import { dispatchProxy, embeddingReserve, completionReserve, extractTokenUsage, imageReserve, imageQuantity } from './proxyDispatch.service';
+import { dispatchProxy, embeddingReserve, completionReserve, extractTokenUsage, imageReserve, imageQuantity, speechReserve, speechCharacters } from './proxyDispatch.service';
 import * as nexus from './nexus.service';
 import { recordTokenUsage } from './token.service';
 
@@ -88,6 +88,37 @@ describe('pure helpers', () => {
   it('imageQuantity counts returned images, or undefined when absent', () => {
     expect(imageQuantity({ data: [{ url: 'a' }, { url: 'b' }] })).toBe(2);
     expect(imageQuantity({})).toBeUndefined();
+  });
+  it('speech helpers reserve from and count the input text', () => {
+    expect(speechReserve({ input: 'hello there' })).toBeGreaterThan(0);
+    expect(speechReserve({})).toBe(1);
+    expect(speechCharacters({ input: 'hello' })).toBe(5);
+    expect(speechCharacters({})).toBe(0);
+  });
+});
+
+describe('dispatchProxy — binary (text-to-speech, Phase 6.3c)', () => {
+  const speechOpts = {
+    capability: 'speech' as const, upstreamPath: '/audio/speech', reserveTokens: 4,
+    responseMode: 'binary' as const,
+    billing: { unit: 'character', quantityFromRequest: speechCharacters },
+  };
+
+  it('streams the audio bytes back with the upstream Content-Type and bills per character', async () => {
+    const audio = Buffer.from('ID3-fake-mp3-bytes');
+    h.fetchImpl = async () => ({
+      ok: true, status: 200,
+      arrayBuffer: async () => audio.buffer.slice(audio.byteOffset, audio.byteOffset + audio.byteLength),
+      headers: { get: (k: string) => (k.toLowerCase() === 'content-type' ? 'audio/mpeg' : null) },
+    });
+    const { reply, state } = fakeReply();
+    await dispatchProxy({ input: 'hello', voice: 'alloy' }, reply, speechOpts);
+
+    expect(state.status).toBe(200);
+    expect(state.headers['Content-Type']).toBe('audio/mpeg');
+    expect(Buffer.isBuffer(state.sent)).toBe(true);
+    expect((state.sent as Buffer).toString()).toBe('ID3-fake-mp3-bytes');
+    expect(recordTokenUsage).toHaveBeenCalledWith(expect.objectContaining({ unit: 'character', quantity: 5, inputTokens: 0 }));
   });
 });
 
