@@ -1,6 +1,7 @@
-// Settings tab — API key, SSRF policy, guardrails, cost routing, response cache.
+// Settings tab — API key, SSRF policy, guardrails, cost routing, response cache,
+// notifications, and compliance/audit (Phase 6.7).
 import { GET, PUT, POST } from '../api.js';
-import { toast } from '../utils.js';
+import { toast, esc } from '../utils.js';
 import { loadConnect } from './connect.js';
 
 async function loadSettings() {
@@ -23,6 +24,8 @@ async function loadSettings() {
   loadRouting();
   loadCache();
   loadNotifications();
+  loadCompliance();
+  loadAudit();
 }
 
 const NOTIFY_EVENTS = ['keyBanned', 'breakerOpened', 'adminLockout', 'budgetThreshold', 'tierExhausted'];
@@ -166,7 +169,69 @@ async function rotateKey() {
 }
 
 
+// ── Compliance & audit (Phase 6.7) ───────────────────────────────────────────
+
+async function loadCompliance() {
+  if (window._demoMode) return;
+  try {
+    const c = await GET('/admin/settings/compliance');
+    // Values not in the offered set still show correctly because the option is present.
+    const audit = document.getElementById('audit-retention');
+    const usage = document.getElementById('usage-retention');
+    if (audit) audit.value = String(c.auditRetentionDays ?? 90);
+    if (usage) usage.value = String(c.usageRetentionDays ?? 90);
+    document.getElementById('anonymize-usage').checked = !!c.anonymizeUsage;
+  } catch {}
+}
+
+async function saveCompliance() {
+  const body = {
+    auditRetentionDays: parseInt(document.getElementById('audit-retention').value, 10) || 0,
+    usageRetentionDays: parseInt(document.getElementById('usage-retention').value, 10) || 0,
+    anonymizeUsage:     document.getElementById('anonymize-usage').checked,
+  };
+  try {
+    await PUT('/admin/settings/compliance', body);
+    toast('Compliance settings saved');
+    loadCompliance();
+  } catch(e) { toast(e.message, true); }
+}
+
+function renderAudit(entries) {
+  const box = document.getElementById('audit-list');
+  if (!box) return;
+  if (!entries.length) { box.textContent = 'No audit entries yet.'; return; }
+  const rows = entries.map(e => {
+    const when = new Date(e.createdAt).toLocaleString();
+    const who  = e.actorRole + (e.actor ? ` · ${e.actor}` : '');
+    const tgt  = e.target ? ` → ${e.target}` : '';
+    return `<tr>
+      <td style="padding:4px 8px;color:var(--muted);white-space:nowrap">${esc(when)}</td>
+      <td style="padding:4px 8px"><strong>${esc(e.action)}</strong>${esc(tgt)}</td>
+      <td style="padding:4px 8px">${esc(who)}</td>
+      <td style="padding:4px 8px;color:var(--muted)">${esc(String(e.status))}</td>
+      <td style="padding:4px 8px;color:var(--muted)">${esc(e.ip || '')}</td>
+    </tr>`;
+  }).join('');
+  box.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="text-align:left;color:var(--muted);border-bottom:1px solid var(--border)">
+      <th style="padding:4px 8px">When</th><th style="padding:4px 8px">Action</th>
+      <th style="padding:4px 8px">Actor</th><th style="padding:4px 8px">Status</th><th style="padding:4px 8px">IP</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+async function loadAudit() {
+  if (window._demoMode) return;
+  const filter = (document.getElementById('audit-filter')?.value || '').trim();
+  try {
+    const q = filter ? `?action=${encodeURIComponent(filter)}&limit=100` : '?limit=100';
+    const { entries } = await GET('/admin/audit' + q);
+    renderAudit(entries || []);
+  } catch { /* leave the current view */ }
+}
+
 export {
   loadSettings, saveSsrf, loadGuardrails, saveGuardrails, loadRouting, saveRouting,
   loadCache, saveCache, loadNotifications, saveNotifications, toggleShowKey, rotateKey,
+  loadCompliance, saveCompliance, loadAudit,
 };

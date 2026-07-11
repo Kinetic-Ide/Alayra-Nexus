@@ -19,6 +19,7 @@ import { FastifyInstance } from 'fastify';
 import { z }              from 'zod';
 import * as auth          from '../../services/adminAuth.service';
 import * as metrics       from '../../lib/metrics';
+import { recordAudit }    from '../../services/audit.service';
 import { adminGuard, adminOwnerGuard } from './guard';
 
 const loginSchema = z.object({
@@ -53,6 +54,19 @@ export default async function adminAuthRoutes(fastify: FastifyInstance) {
 
     const result = await auth.login(parsed.data.password, parsed.data.code, request.ip);
 
+    // Record the sign-in outcome (never the credential). A failed or locked-out attempt is as
+    // security-relevant as a success, so every branch is logged with its outcome.
+    const outcome = result.ok ? 'success' : result.reason;
+    recordAudit({
+      action:    'auth.login',
+      method:    'POST',
+      actorRole: result.ok ? result.role : 'system',
+      actor:     'password',
+      ip:        request.ip,
+      status:    result.ok ? 200 : result.reason === 'locked_out' ? 429 : 401,
+      detail:    JSON.stringify({ outcome }),
+    });
+
     if (result.ok) {
       metrics.adminLogin('success');
       return reply.send({ token: result.token, expiresIn: result.expiresIn, role: result.role });
@@ -79,6 +93,10 @@ export default async function adminAuthRoutes(fastify: FastifyInstance) {
 
   fastify.post('/admin/logout', adminGuard, async (request, reply) => {
     await auth.destroySession(bearer(request));
+    recordAudit({
+      action: 'auth.logout', method: 'POST',
+      actorRole: request.adminRole ?? 'system', ip: request.ip, status: 200,
+    });
     return reply.send({ success: true });
   });
 

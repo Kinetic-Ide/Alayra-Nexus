@@ -11,6 +11,46 @@
 
 ---
 
+**Date:** 2026-07-11 · Session 38  
+**Author:** Abbas  
+**Title:** Phase 6.7 — Audit Trail & Compliance Logging  
+
+**Summary:**  
+When more than one person can administer a system, "who changed this, and when?" stops being a
+rhetorical question. Until now the gateway could tell you its current state but not its history:
+a key was banned, a budget was changed, a setting was flipped — but nothing recorded that it
+happened, who did it, or from where. This session adds that memory. Every action that changes
+the gateway is now written to a permanent, append-only record — the action, the person's access
+level, what they acted on, their address, the time, and the result. Sign-ins, sign-outs, and
+single sign-on logins are recorded too, including the failed attempts, which are often the ones
+worth seeing.
+
+Two design choices make this trustworthy rather than decorative. First, the recording happens in
+one place that sits across the whole admin surface, so a feature added next month is covered
+automatically — no one has to remember to log it. Second, the record is genuinely read-only:
+there is no way, through the product, to edit or quietly delete an entry; the log can be read and
+filtered, but the only thing that ever removes an entry is the retention policy the operator sets.
+Passwords, keys, and codes are stripped out before anything is written, so the trail can never
+itself become a place a secret leaks. And because the writing is done in the background, keeping
+this history never slows down the dashboard.
+
+The same session adds the compliance controls that a serious deployment needs. An operator can
+say how long to keep each record — the action history and the usage history are governed
+separately, each up to ninety days, or set to "off" to keep everything indefinitely. Both start
+at ninety days, a common international norm, applied automatically by a daily cleanup; an operator
+who wants a full archive simply turns retention off. There is also an anonymization option for
+privacy-strict environments, which de-identifies the traffic records — replacing the session
+fingerprint with a one-way code and masking network addresses — so the analytics remain useful
+while the personal detail is gone. The one honest note we put in front of the operator, right on
+the control: shortening the usage window also shortens how far back the analytics charts can look.
+
+The audit trail and the compliance controls appear together as a read-only, filterable view in
+the Settings area, exactly where an administrator would look for them. Shipped green across the
+board — code style, type safety, the full automated test suite (twenty-three new tests), the
+production build, and a zero-vulnerability dependency audit, with no new dependency added.
+
+---
+
 **Date:** 2026-07-11 · Session 37  
 **Author:** Abbas  
 **Title:** Phase 6.6 — Enterprise Single Sign-On (OpenID Connect)  

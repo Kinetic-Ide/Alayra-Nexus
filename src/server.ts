@@ -30,6 +30,7 @@ import { deriveRateLimitKey } from './lib/rateLimitKey';
 import { getSetting, setSetting } from './services/settings.service';
 import { reconcilePoolsToRegistry } from './services/model.service';
 import { drainUsage }     from './services/usagePipeline';
+import { drainAudit, runRetention } from './services/audit.service';
 import { metricsText, metricsContentType } from './lib/metrics';
 import { verifyMetricsToken } from './middleware/auth.middleware';
 import { assertDependencies, StartupCheckError } from './services/preflight.service';
@@ -127,6 +128,16 @@ async function bootstrap() {
   await app.listen({ port: PORT, host: HOST });
   console.log(`\n🚀  Alayra Nexus running on http://${HOST}:${PORT}`);
   console.log(`    OpenAI base URL → http://localhost:${PORT}/v1`);
+
+  // Compliance retention (Phase 6.7): apply the configured audit/usage retention windows
+  // daily. Deletion is bounded to whatever the operator set (default 90 days; "Off" keeps
+  // everything). The first pass is delayed a minute so it never contends with startup, and
+  // the timer is unref'd so it cannot hold the process open on its own.
+  const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
+  const firstPass = setTimeout(() => { void runRetention(); }, 60_000);
+  const retentionTimer = setInterval(() => { void runRetention(); }, RETENTION_INTERVAL_MS);
+  if (typeof firstPass.unref === 'function') firstPass.unref();
+  if (typeof retentionTimer.unref === 'function') retentionTimer.unref();
 }
 
 bootstrap().catch((err) => {
@@ -138,9 +149,10 @@ bootstrap().catch((err) => {
 });
 
 async function shutdown() {
-  // Flush any buffered usage events before the process exits so analytics that
-  // are still in the in-process pipeline are not lost on restart/redeploy.
+  // Flush any buffered usage events and audit entries before the process exits so nothing
+  // still in an in-process pipeline is lost on restart/redeploy.
   try { await drainUsage(); } catch { /* best effort */ }
+  try { await drainAudit(); } catch { /* best effort */ }
   await prisma.$disconnect();
   process.exit(0);
 }

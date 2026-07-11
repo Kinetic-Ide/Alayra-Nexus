@@ -61,6 +61,8 @@ Object.assign(window, {
   saveRouting: settings.saveRouting,
   saveCache: settings.saveCache,
   saveNotifications: settings.saveNotifications,
+  saveCompliance: settings.saveCompliance,
+  loadAudit: settings.loadAudit,
   toggleShowKey: settings.toggleShowKey,
   rotateKey: settings.rotateKey,
 });

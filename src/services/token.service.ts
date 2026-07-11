@@ -21,6 +21,8 @@ import { emit }            from './usagePipeline';
 import { addSpend, periodKey, type BudgetPeriod } from './budget.service';
 import { notificationsArmed, notify } from './notifications.service';
 import { budgetThresholdCrossed, budgetThresholdMessage } from '../lib/notify';
+import { isUsageAnonymized } from './audit.service';
+import { hashIdentifier }    from '../lib/audit';
 
 type Period = 'today' | '7d' | '30d' | '90d';
 
@@ -116,11 +118,17 @@ export async function recordTokenUsage(p: RecordTokenUsageParams): Promise<void>
       .catch(() => {});
   }
 
+  // Compliance (Phase 6.7): when anonymization is on, the session fingerprint is the one
+  // user-identifying field in a usage row, so it is replaced with a stable one-way hash —
+  // per-session grouping still works, but the original value is never stored. The flag is
+  // memoized in-process, so this stays a cheap check on the hot path.
+  const sessionId = (await isUsageAnonymized()) ? hashIdentifier(p.sessionId) : p.sessionId;
+
   // Hand off to the async pipeline instead of writing to Postgres inline: the
   // request path never waits on the analytics INSERT, and writes are batched.
   emit({
     id:             randomUUID(),
-    sessionId:      p.sessionId,
+    sessionId,
     modelId:        p.modelId,
     modelName:      p.modelName,
     provider:       p.provider,

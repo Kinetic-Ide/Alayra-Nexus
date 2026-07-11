@@ -10,6 +10,19 @@ semver. The legacy ids `kinetic-nexus-1` and `nexus` remain accepted as aliases.
 ## [Unreleased]
 
 ### Added
+- **Audit trail & compliance logging for the admin panel (Phase 6.7).** Every state-changing
+  admin action is now recorded to an append-only log — who (the Phase 6.5 role), what (a stable
+  action slug), on what target, from which IP, at what time, with what result — captured by a
+  single request hook so a route added later is covered automatically, plus explicit entries for
+  every sign-in, sign-out, and SSO login (success and failure alike). Secrets are redacted before
+  write and the log is read-only over the API (`GET /admin/audit`, filterable) — there is no edit
+  or delete endpoint, so the trail cannot be tampered with; entries are removed only by the
+  retention policy. Writes go through a buffered, off-the-request-path writer (the Phase 4 usage
+  pipeline pattern), so auditing never slows a response. **Compliance controls (Settings → Compliance
+  & audit):** independent retention windows for the audit log and the usage/analytics log (each
+  selectable up to 90 days, or Off to keep forever; **both default to 90 days**, applied by a daily
+  cleanup), and an anonymization option that replaces the usage session fingerprint with a one-way
+  hash and masks audit IPs for GDPR-sensitive deployments. Additive migration; no new dependency.
 - **Enterprise single sign-on for the admin panel (Phase 6.6).** The gateway can now delegate
   admin sign-in to a corporate identity provider over **OpenID Connect** (Okta, Microsoft
   Entra, Google Workspace, Auth0, Keycloak, and any OIDC-compliant IdP), using the

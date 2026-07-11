@@ -25,6 +25,9 @@ import adminKeysRoutes      from './keys.routes';
 import adminModelsRoutes    from './models.routes';
 import adminAnalyticsRoutes from './analytics.routes';
 import adminTeamsRoutes     from './teams.routes';
+import adminAuditRoutes     from './audit.routes';
+import { recordAudit }      from '../../services/audit.service';
+import { deriveAction, shouldAutoAudit } from '../../lib/audit';
 
 /**
  * The admin API, grouped by resource. Each sub-router declares its own absolute
@@ -32,6 +35,28 @@ import adminTeamsRoutes     from './teams.routes';
  * irrelevant and no prefix is inherited.
  */
 export default async function adminRoutes(fastify: FastifyInstance) {
+  // Audit hook (Phase 6.7): one place records every state-changing admin action, so a route
+  // added later is covered without anyone remembering to log it — the same principle as the
+  // guard. Encapsulated to this plugin, so only /admin traffic is audited, never the proxy.
+  // Reads the role that verifyAdminPassword already attached; auth/SSO routes are recorded by
+  // their own handlers (with the outcome the hook cannot see) and skipped here. Wrapped so an
+  // audit failure can never disturb the response that already completed.
+  fastify.addHook('onResponse', async (request, reply) => {
+    try {
+      const url = request.routeOptions?.url ?? request.url;
+      if (!shouldAutoAudit(url, request.method, reply.statusCode)) return;
+      const params = (request.params ?? {}) as Record<string, string>;
+      recordAudit({
+        action:    deriveAction(request.method, url),
+        method:    request.method,
+        actorRole: request.adminRole ?? 'system',
+        target:    params.id ?? params.slug ?? null,
+        ip:        request.ip,
+        status:    reply.statusCode,
+      });
+    } catch { /* auditing must never break a response */ }
+  });
+
   // Auth first: /admin/login and the SSO handshake routes are the ones here not behind
   // adminGuard — they are how a caller obtains a credential.
   await fastify.register(adminAuthRoutes);
@@ -43,4 +68,5 @@ export default async function adminRoutes(fastify: FastifyInstance) {
   await fastify.register(adminModelsRoutes);
   await fastify.register(adminAnalyticsRoutes);
   await fastify.register(adminTeamsRoutes);
+  await fastify.register(adminAuditRoutes);
 }

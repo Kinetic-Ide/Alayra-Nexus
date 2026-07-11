@@ -258,6 +258,45 @@
           <input type="number" id="notify-window" min="60" max="86400" value="3600" style="width:160px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)"/>
           <div><button class="btn btn-sm" style="margin-top:12px" onclick="saveNotifications()">Save notifications</button></div>
         </div>
+
+        <!-- Compliance & audit (Phase 6.7). Retention defaults to 90 days for both logs; "Off"
+             keeps everything. The server enforces these; owner role required to change them. -->
+        <div class="card" style="max-width:500px;margin-top:16px">
+          <div class="card-title">Compliance &amp; audit</div>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:12px">The gateway keeps an append-only record of every admin action (who did what, from where, when). Choose how long to keep each log — <strong>Off</strong> keeps everything. Note that trimming the usage log also shortens your analytics history.</p>
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Delete audit-log entries older than</label>
+          <select id="audit-retention" style="width:200px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);margin-bottom:10px">
+            <option value="0">Off — keep forever</option>
+            <option value="7">7 days</option>
+            <option value="30">30 days</option>
+            <option value="60">60 days</option>
+            <option value="90" selected>90 days</option>
+          </select>
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Delete usage/analytics history older than</label>
+          <select id="usage-retention" style="width:200px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);margin-bottom:10px">
+            <option value="0">Off — keep forever</option>
+            <option value="7">7 days</option>
+            <option value="30">30 days</option>
+            <option value="60">60 days</option>
+            <option value="90" selected>90 days</option>
+          </select>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:12px">
+            <input type="checkbox" id="anonymize-usage"/>
+            <span>Anonymize usage data (hash session id, mask IPs) — for GDPR-sensitive deployments</span>
+          </label>
+          <div><button class="btn btn-sm" onclick="saveCompliance()">Save compliance</button></div>
+        </div>
+
+        <!-- Read-only audit trail. There is no edit/delete over the API by design. -->
+        <div class="card" style="max-width:760px;margin-top:16px">
+          <div class="card-title">Audit log</div>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:12px">A read-only, newest-first record of admin actions. Filter by action (e.g. <code>keys.ban</code>, <code>auth.login</code>, <code>settings.notifications</code>).</p>
+          <div style="display:flex;gap:8px;margin-bottom:10px">
+            <input type="text" id="audit-filter" placeholder="Filter by action…" style="flex:1;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)"/>
+            <button class="btn btn-sm" onclick="loadAudit()">Search</button>
+          </div>
+          <div id="audit-list" style="font-size:12px;overflow-x:auto">Loading…</div>
+        </div>
       </div>
 
     </main>

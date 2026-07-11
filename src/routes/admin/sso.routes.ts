@@ -22,6 +22,7 @@ import { FastifyInstance } from 'fastify';
 import { z }               from 'zod';
 import * as sso            from '../../services/sso.service';
 import { buildOrigin }     from '../../lib/baseUrl';
+import { recordAudit }     from '../../services/audit.service';
 import { adminGuard, adminOwnerGuard } from './guard';
 
 const configSchema = z.object({
@@ -82,6 +83,10 @@ export default async function adminSsoRoutes(fastify: FastifyInstance) {
 
     try {
       const { token, role } = await sso.completeLogin(q.code ?? '', q.state ?? '');
+      recordAudit({
+        action: 'auth.sso.login', method: 'GET', actorRole: role, actor: 'sso',
+        ip: request.ip, status: 200, detail: JSON.stringify({ outcome: 'success' }),
+      });
       const payload = JSON.stringify({ token, role });
       return reply
         .header('Cache-Control', 'no-store')
@@ -97,6 +102,10 @@ export default async function adminSsoRoutes(fastify: FastifyInstance) {
     } catch (e) {
       const code = e instanceof sso.SsoError ? e.code : 'verification_failed';
       request.log.warn({ err: e }, 'sso callback failed');
+      recordAudit({
+        action: 'auth.sso.login', method: 'GET', actorRole: 'system', actor: 'sso',
+        ip: request.ip, status: 401, detail: JSON.stringify({ outcome: code }),
+      });
       return bounce(reply, code);
     }
   });

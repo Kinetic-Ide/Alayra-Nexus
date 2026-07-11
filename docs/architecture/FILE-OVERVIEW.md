@@ -20,6 +20,7 @@ for the layering rule and the request path.
 | `tokenizer.ts` | `js-tiktoken` token counting and the pre-admission reserve estimate |
 | `notify.ts` | Operator-notification pure core: event catalogue, config normalization, per-event message text, and the coalescing key |
 | `sso.ts` | Enterprise-SSO pure core: PKCE/state/nonce generation, the OIDC authorize-URL builder, scope normalization, and the claim → role mapping |
+| `audit.ts` | Audit/compliance pure core: which requests to record, the action slug for a route, secret-field redaction, IP anonymization, and retention-day clamping |
 | `url.ts` | SSRF: `assertSafeUrl`, `isPrivateHost` |
 | `encryption.ts` | AES-256-GCM encrypt/decrypt and key masking |
 | `timingSafe.ts` | `safeEqual` — constant-time secret comparison, length-safe |
@@ -48,6 +49,7 @@ for the layering rule and the request path.
 | `model.service.ts` | The model registry and its cache |
 | `notifications.service.ts` | Notification config (encrypted Resend key) + delivery: one email/webhook per event per window, fire-and-forget, off the request path |
 | `sso.service.ts` | Enterprise SSO (OIDC): IdP config (encrypted client secret), SSRF-guarded discovery, the redirect handshake, `jose` ID-token verification, and role-mapped session mint |
+| `audit.service.ts` | Audit trail: a buffered append-only writer (the usage-pipeline pattern), the filtered read, the compliance config (retention windows + anonymization), and the retention prune |
 
 ## `src/routes/` — HTTP surface
 
@@ -58,6 +60,7 @@ for the layering rule and the request path.
 | `admin/guard.ts` | `adminGuard` (auth) and `adminOwnerGuard` (auth + `requireOwner`) — the single place admin auth and the RBAC owner gate are applied |
 | `admin/auth.routes.ts` | `/admin/login` (the one unguarded admin route), TOTP, recovery codes, API tokens |
 | `admin/sso.routes.ts` | Enterprise SSO: the unguarded OIDC handshake (`/admin/sso/login`, `/admin/sso/callback`, enabled hint) and the guarded config read/write |
+| `admin/audit.routes.ts` | Read-only audit trail (`GET /admin/audit`, filterable — no write/delete by design) and the compliance policy read/write (owner) |
 | `admin/system.routes.ts` | Dashboard config, health, API-key management, routing status, cache bust |
 | `admin/settings.routes.ts` | SSRF, guardrails, cost routing, response cache, notifications, raw settings |
 | `admin/providers.routes.ts` | Provider pools; credential and model validation probes |

@@ -166,6 +166,28 @@ model AdminApiToken {
   createdAt  DateTime  @default(now())
 }
 
+// ── Audit & compliance logging (Phase 6.7) ────────────────────────────────────
+// An append-only trail of state-changing admin actions. Written off the request path
+// through a buffered writer (the Phase 4 usage-pipeline pattern), never updated after
+// insert, and pruned only by the retention job. `actorRole` ties every action to the
+// Phase 6.5 role that performed it; secrets are redacted and the IP may be anonymized
+// before write for GDPR-sensitive deployments. Indexed for time-ordered, per-action reads.
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String   // stable slug, e.g. "keys.ban", "settings.notifications", "auth.login"
+  method    String   @default("")     // HTTP method that produced it
+  actorRole String   @default("system") // owner | viewer | system
+  actor     String?  // coarse, non-PII actor hint ("password" | "token" | "sso"); role is the attributor
+  target    String?  // the resource acted on (id / path)
+  ip        String?  // request IP; truncated when anonymization is enabled
+  status    Int      @default(0)      // response status code
+  detail    String?  // small redacted JSON of safe context — never a secret
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([action, createdAt])
+}
+
 // ── Enterprise SSO (Phase 6.6) ────────────────────────────────────────────────
 // A single active identity-provider configuration. A table (single "singleton" row),
 // not columns on AppSettings, so a second IdP or a SAML adapter is an additive change
