@@ -19,7 +19,7 @@ import {
   discoverBestPool, getNextCooldownSeconds,
   reportSuccess, reportServerFailure, reportRateLimit, reportAuthFailure, reportTierExhausted,
 } from './nexus.service';
-import { recordTokenUsage }     from './token.service';
+import { recordTokenUsage, recordOutcome } from './token.service';
 import { reconcileTpm }         from '../lib/admission';
 import { countTokens }          from '../lib/tokenizer';
 import { stripTrailingSlash, assertSafeUrl } from '../lib/url';
@@ -130,10 +130,22 @@ export async function dispatchProxy(
   reply: FastifyReply,
   opts: DispatchOptions,
 ): Promise<FastifyReply | void> {
+  const { team, teamKeyId, capability, upstreamPath, reserveTokens, billing, requestBuild } = opts;
   const t0 = Date.now();
   let tier: string | undefined = undefined; // set once a route is chosen (read in the closure before then)
-  const observe = (o: metrics.RequestOutcome) => metrics.observeRequest(o, tier, (Date.now() - t0) / 1000);
-  const { team, teamKeyId, capability, upstreamPath, reserveTokens, billing, requestBuild } = opts;
+  let routeProvider: string | null = null;  // ditto — a request that fails before routing has neither
+  let routeModel:    string | null = null;
+  // One call per exit, so this is the seam that persists an outcome (Phase 7.5). Failures are
+  // written here; a success is written by recordTokenUsage, which also carries tokens and cost.
+  const observe = (o: metrics.RequestOutcome) => {
+    const elapsed = Date.now() - t0;
+    metrics.observeRequest(o, tier, elapsed / 1000);
+    if (o !== 'success') {
+      void recordOutcome({
+        outcome: o, latencyMs: elapsed, provider: routeProvider, modelName: routeModel, nexusTeamKeyId: teamKeyId,
+      }).catch(() => {});
+    }
+  };
   const responseMode = opts.responseMode ?? 'json';
 
   // Team budget gate — before any provider work.
@@ -164,7 +176,9 @@ export async function dispatchProxy(
     });
   }
 
-  tier = route.tier;
+  tier          = route.tier;
+  routeProvider = route.providerSlug;
+  routeModel    = route.modelString;
   metrics.providerRequest(route.providerSlug);
   if (isByok(scope)) metrics.byokRequest(route.byok ? 'own' : 'fallback');
 
@@ -243,6 +257,7 @@ export async function dispatchProxy(
   const usage = {
     sessionId: `${capability}-${Date.now()}`, modelId: route.modelId ?? route.modelString, modelName: route.modelString,
     provider: route.providerSlug, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod, teamBudgetUsd: team?.budgetUsd,
+    latencyMs: Date.now() - t0,
   };
   if (billing) {
     // Non-token modality (image, speech): bill per unit, not per token. No admission

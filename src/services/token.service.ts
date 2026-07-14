@@ -85,28 +85,40 @@ export interface RecordTokenUsageParams {
   // A response-cache hit: no provider was called, so it costs $0 and does not
   // consume budget. Still recorded (attributed to the team) so analytics are honest.
   cached?:           boolean;
+  // End-to-end request latency (Phase 7.5). Recorded so latency can be charted from real data.
+  latencyMs?:        number;
+  // Usually "success". A stream that dies mid-flight is the exception: it delivered partial output
+  // that the provider will bill for, so its tokens must still be recorded — but the request itself
+  // failed, and calling it a success would quietly inflate the success rate.
+  outcome?:          string;
 }
 
 export async function recordTokenUsage(p: RecordTokenUsageParams): Promise<void> {
   const unit     = p.unit ?? 'token';
   const quantity = p.quantity ?? 0;
-  let estimatedUsd = 0;
-  if (!p.cached) {
-    try {
-      const registry = await getModelRegistry();
-      const matchesModel = (r: { modelString?: string; id?: string }): boolean =>
-        r.modelString === p.modelName || r.id === p.modelId;
-      const m = registry.find(matchesModel) as Record<string, unknown> | undefined;
-      if (!m) {
-        // Explicit fallback: a model not in the registry is treated as zero estimated spend.
-        estimatedUsd = 0;
-      } else {
-        estimatedUsd = unit === 'token'
-          ? modelCost(m, p.inputTokens, p.outputTokens)
-          : unitCost(m, unit, quantity);
-      }
-    } catch { /* non-fatal — never block a proxy request */ }
-  }
+
+  // The model's price for this request, computed the same way whether or not the cache served it.
+  // On a normal request that price IS the cost; on a cache hit the provider was never called, so
+  // the cost is zero and the same figure becomes the saving. Computing it once, for both, is what
+  // makes "what has caching saved me" answerable — previously a cache hit stored a bare 0 and the
+  // counterfactual was lost forever.
+  let price = 0;
+  try {
+    const registry = await getModelRegistry();
+    const matchesModel = (r: { modelString?: string; id?: string }): boolean =>
+      r.modelString === p.modelName || r.id === p.modelId;
+    const m = registry.find(matchesModel) as Record<string, unknown> | undefined;
+    // Explicit fallback: a model not in the registry is treated as zero estimated spend.
+    if (m) {
+      price = unit === 'token'
+        ? modelCost(m, p.inputTokens, p.outputTokens)
+        : unitCost(m, unit, quantity);
+    }
+  } catch { /* non-fatal — never block a proxy request */ }
+
+  const cached       = p.cached ?? false;
+  const estimatedUsd = cached ? 0     : price;
+  const savedUsd     = cached ? price : 0;
 
   // Record the request's real cost against the team's budget window (fire-and-
   // forget — budget accounting must never block or fail a proxied request). The new
@@ -145,6 +157,51 @@ export async function recordTokenUsage(p: RecordTokenUsageParams): Promise<void>
     unit,
     quantity,
     estimatedUsd,
+    outcome:        p.outcome ?? 'success',
+    latencyMs:      Math.max(0, Math.round(p.latencyMs ?? 0)),
+    cached,
+    savedUsd,
+    nexusTeamKeyId: p.nexusTeamKeyId ?? null,
+    createdAt:      new Date(),
+  });
+}
+
+export interface RecordOutcomeParams {
+  /** The outcome taxonomy shared with the Prometheus metrics — anything but "success". */
+  outcome:         string;
+  latencyMs:       number;
+  /** Known only once routing has picked a pool; a request that failed before that has neither. */
+  modelName?:      string | null;
+  provider?:       string | null;
+  nexusTeamKeyId?: string;
+}
+
+/**
+ * Record a request that did not succeed (Phase 7.5). A failed request has no tokens, no cost, and
+ * no saving, so it needs neither the registry lookup nor the budget path — it exists purely so the
+ * dashboard can tell the truth about success rate, error mix, and latency. Before this, failures
+ * were counted in Prometheus and then thrown away, which is why the charts could never show them.
+ *
+ * Deliberately never records a session id: a failed request contributes nothing to per-session
+ * analytics, and this keeps the anonymization surface unchanged.
+ */
+export async function recordOutcome(p: RecordOutcomeParams): Promise<void> {
+  emit({
+    id:             randomUUID(),
+    sessionId:      '',
+    modelId:        p.modelName ?? '',
+    modelName:      p.modelName ?? '',
+    provider:       p.provider  ?? '',
+    inputTokens:    0,
+    outputTokens:   0,
+    totalTokens:    0,
+    unit:           'token',
+    quantity:       0,
+    estimatedUsd:   0,
+    outcome:        p.outcome,
+    latencyMs:      Math.max(0, Math.round(p.latencyMs)),
+    cached:         false,
+    savedUsd:       0,
     nexusTeamKeyId: p.nexusTeamKeyId ?? null,
     createdAt:      new Date(),
   });

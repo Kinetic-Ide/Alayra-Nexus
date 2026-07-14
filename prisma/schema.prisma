@@ -84,6 +84,20 @@ model TokenUsage {
   unit            String        @default("token")
   quantity        Int           @default(0)
   estimatedUsd    Float         @default(0)
+  // Per-request outcome (Phase 7.5). Until now only successful requests were recorded, so the
+  // dashboard could never show a success or error rate — the data was simply never written.
+  // Every request now lands a row, carrying the same outcome taxonomy the Prometheus metrics use
+  // ("success" | "client_error" | "blocked" | "no_capacity" | "upstream_error" | "ssrf_blocked" |
+  // "budget_blocked"). A failed request has no tokens and no cost, so its sums stay zero and every
+  // existing money/token aggregate is unaffected.
+  outcome         String        @default("success")
+  latencyMs       Int           @default(0)
+  // Response-cache accounting (Phase 7.5). `cached` marks a request served from the cache: no
+  // provider was called, so `estimatedUsd` is 0 — and `savedUsd` records what that call *would*
+  // have cost. Summing savedUsd is what makes cache savings a real, honest number rather than an
+  // absence in the data.
+  cached          Boolean       @default(false)
+  savedUsd        Float         @default(0)
   nexusTeamKeyId  String?
   teamKey         NexusTeamKey? @relation(fields: [nexusTeamKeyId], references: [id], onDelete: SetNull)
   createdAt       DateTime      @default(now())
@@ -91,6 +105,7 @@ model TokenUsage {
   @@index([modelId, createdAt])
   @@index([createdAt])
   @@index([nexusTeamKeyId])
+  @@index([outcome, createdAt])
 }
 
 // A team groups scoped access keys and carries the per-period budget cap that is

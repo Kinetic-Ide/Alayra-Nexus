@@ -16,7 +16,7 @@
 
 import type { FastifyReply } from 'fastify';
 import { discoverBestPool, getNextCooldownSeconds, reportSuccess, reportServerFailure, reportRateLimit, reportAuthFailure, reportTierExhausted } from './nexus.service';
-import { recordTokenUsage }          from './token.service';
+import { recordTokenUsage, recordOutcome } from './token.service';
 import { computeReserve, countMessageTokens, countTokens } from '../lib/tokenizer';
 import { reconcileTpm }              from '../lib/admission';
 import { sessionHash, setStickyKeyId } from '../lib/sticky';
@@ -159,7 +159,25 @@ export async function handleProxy(
   // Metrics: measure the whole request and record its outcome at each exit.
   const t0 = Date.now();
   let tier: string | undefined = undefined; // set once a route is chosen
-  const observe = (outcome: metrics.RequestOutcome) => metrics.observeRequest(outcome, tier, (Date.now() - t0) / 1000);
+  let routeProvider: string | null = null;  // ditto — a request that fails before routing has neither
+  let routeModel:    string | null = null;
+  // Every exit calls this exactly once, which makes it the one honest seam for persisting an
+  // outcome. Failures are written here; a success is written by recordTokenUsage (which also
+  // carries the tokens, cost, and cache saving), so recording it here too would double-count.
+  //
+  // `persist: false` is for the one path that fails yet still has real token usage to record — a
+  // stream that dies mid-flight. There, recordTokenUsage writes the single row and stamps the
+  // failed outcome on it itself; writing a second row here would both double-count the request and
+  // book its tokens as a success.
+  const observe = (outcome: metrics.RequestOutcome, persist = true) => {
+    const elapsed = Date.now() - t0;
+    metrics.observeRequest(outcome, tier, elapsed / 1000);
+    if (outcome !== 'success' && persist) {
+      void recordOutcome({
+        outcome, latencyMs: elapsed, provider: routeProvider, modelName: routeModel, nexusTeamKeyId: teamKeyId,
+      }).catch(() => {});
+    }
+  };
 
   const modelField = (body.model ?? '').trim().toLowerCase();
   // Canonical id is `alayra-nexus-1`; `kinetic-nexus-1` and `nexus` stay as silent
@@ -242,7 +260,8 @@ export async function handleProxy(
       void recordTokenUsage({
         sessionId: `cache-${Date.now()}`, modelId: hit.model, modelName: hit.model, provider: hit.provider,
         inputTokens: hit.promptTokens, outputTokens: hit.completionTokens,
-        nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod, teamBudgetUsd: team?.budgetUsd, cached: true,
+        nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod, teamBudgetUsd: team?.budgetUsd,
+        cached: true, latencyMs: Date.now() - t0,
       }).catch(() => {});
       const completion = toCompletionJson(hit);
       const hitHeaders = { 'X-Nexus-Model': hit.model, 'X-Nexus-Provider': hit.provider, 'X-Nexus-Cache': 'hit' };
@@ -296,7 +315,9 @@ export async function handleProxy(
   }
 
   // Route chosen: record provider dispatch and (if applicable) a prompt-cache hit.
-  tier = route.tier;
+  tier          = route.tier;
+  routeProvider = route.providerSlug;
+  routeModel    = route.modelString;
   metrics.providerRequest(route.providerSlug);
   if (route.sticky) metrics.cacheHit();
   // Only a key-owning team can produce a BYOK outcome; pooled callers are not counted.
@@ -424,7 +445,7 @@ export async function handleProxy(
     observe('success'); metrics.addTokens(inputTokens, outputTokens);
     storeInCache(cacheStoreKey, data, route.providerSlug, cacheCfg.ttlSeconds);
     void reconcileTpm(keyId, reserve, inputTokens + outputTokens).catch(() => {});
-    void recordTokenUsage({ sessionId, modelId: route.modelId ?? route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod, teamBudgetUsd: team?.budgetUsd }).catch(() => {});
+    void recordTokenUsage({ sessionId, modelId: route.modelId ?? route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod, teamBudgetUsd: team?.budgetUsd, latencyMs: Date.now() - t0 }).catch(() => {});
     return;
   }
 
@@ -461,8 +482,10 @@ export async function handleProxy(
     }
 
     // A stream that connected (200 headers) but hung/aborted mid-flight is a
-    // server-side fault; a clean completion closes the breaker and sticks.
-    if (streamFailed) { void reportServerFailure(keyId, route.isProbe).catch(() => {}); metrics.providerError(route.providerSlug, 'server'); observe('upstream_error'); }
+    // server-side fault; a clean completion closes the breaker and sticks. Either way it delivered
+    // tokens the provider will bill for, so recordTokenUsage below writes the one row and carries
+    // the real outcome — hence persist: false here (see the observe comment).
+    if (streamFailed) { void reportServerFailure(keyId, route.isProbe).catch(() => {}); metrics.providerError(route.providerSlug, 'server'); observe('upstream_error', false); }
     else { onHealthy(); observe('success'); }
 
     const usage        = parseUsageFromSSE(collected);
@@ -472,7 +495,7 @@ export async function handleProxy(
     // Only cache a cleanly-completed stream; reuse the buffer already collected.
     if (!streamFailed) storeStreamInCache(cacheStoreKey, collected, route.modelString, route.providerSlug, inputTokens, outputTokens, cacheCfg.ttlSeconds);
     void reconcileTpm(keyId, reserve, inputTokens + outputTokens).catch(() => {});
-    void recordTokenUsage({ sessionId, modelId: route.modelId ?? route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod, teamBudgetUsd: team?.budgetUsd }).catch(() => {});
+    void recordTokenUsage({ sessionId, modelId: route.modelId ?? route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod, teamBudgetUsd: team?.budgetUsd, latencyMs: Date.now() - t0, outcome: streamFailed ? 'upstream_error' : 'success' }).catch(() => {});
     return;
   }
 
@@ -503,7 +526,7 @@ export async function handleProxy(
   observe('success'); metrics.addTokens(inputTokens, outputTokens);
   storeInCache(cacheStoreKey, data, route.providerSlug, cacheCfg.ttlSeconds); // cache the post-guardrails response
   void reconcileTpm(keyId, reserve, inputTokens + outputTokens).catch(() => {});
-  void recordTokenUsage({ sessionId, modelId: route.modelId ?? route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod, teamBudgetUsd: team?.budgetUsd }).catch(() => {});
+  void recordTokenUsage({ sessionId, modelId: route.modelId ?? route.modelString, modelName: route.modelString, provider: route.providerSlug, inputTokens, outputTokens, nexusTeamKeyId: teamKeyId, teamId: team?.id, teamBudgetPeriod: team?.budgetPeriod, teamBudgetUsd: team?.budgetUsd, latencyMs: Date.now() - t0 }).catch(() => {});
 
   for (const [k, v] of Object.entries(nexusHeaders)) reply.header(k, v);
   return reply.code(200).send(data);

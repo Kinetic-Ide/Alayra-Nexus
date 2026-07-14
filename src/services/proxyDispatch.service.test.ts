@@ -31,7 +31,7 @@ vi.mock('./nexus.service', () => ({
   reportAuthFailure:   vi.fn(async () => {}),
   reportTierExhausted: vi.fn(async () => {}),
 }));
-vi.mock('./token.service',  () => ({ recordTokenUsage: vi.fn(async () => {}) }));
+vi.mock('./token.service',  () => ({ recordTokenUsage: vi.fn(async () => {}), recordOutcome: vi.fn(async () => {}) }));
 vi.mock('../lib/admission', () => ({ reconcileTpm: vi.fn(async () => {}) }));
 vi.mock('../lib/url',       () => ({ assertSafeUrl: vi.fn(() => {}), stripTrailingSlash: (s: string) => s.replace(/\/$/, '') }));
 vi.mock('./ssrf.service',   () => ({ getSsrfPolicy: vi.fn(async () => ({})) }));

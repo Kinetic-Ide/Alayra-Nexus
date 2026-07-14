@@ -41,6 +41,14 @@ export interface UsageEvent {
   unit:           string;
   quantity:       number;
   estimatedUsd:   number;
+  // Per-request outcome + latency (Phase 7.5). Every request emits an event now, not just the
+  // successful ones, so success/error rates and latency can be charted from real data.
+  outcome:        string;
+  latencyMs:      number;
+  // Response-cache accounting (Phase 7.5): `cached` marks a cache-served request (cost 0) and
+  // `savedUsd` is what calling the provider would have cost.
+  cached:         boolean;
+  savedUsd:       number;
   nexusTeamKeyId: string | null;
   createdAt:      Date;
 }
