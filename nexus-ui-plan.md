@@ -70,13 +70,16 @@ Settings · Admin
 The first three phases exist to **reach parity so the cutover can happen**. Everything in them is
 "surface a backend that is already built and tested" — low risk, high visibility.
 
-### P7.6 — Settings (sub-tabs) + Logs  ← *the biggest parity blocker*
-The new dashboard has **no Settings at all**, so every 6.x capability is currently unreachable in it.
-Restructure into sub-tabs instead of one crowded scroll: **Routing · Cache · Guardrails ·
-Notifications · Compliance · SSRF · Appearance** (theme + fonts). Promote the 6.7 audit trail out of
-Settings into its own **Logs** section (filterable, read-only). *All backend exists.*
+### ~~P7.6 — Settings (sub-tabs) + Logs~~ ✅ **DONE** (`414baf5`)
+Settings is seven sub-tabs (Routing · Cache · Guardrails · Notifications · Network · Compliance ·
+Appearance), each loading and saving only what it owns; every control states its consequence. Logs is
+its own filterable, read-only section. **No backend change was needed** — every endpoint already
+existed. Fixed two bugs found while building: the Toggle was silently dead (a `<label>` around a
+`<button>` re-dispatched the click, so every switch fired twice and no-oped), and panels re-seeded
+from a prop in an effect, which could clobber an in-progress edit and left "unsaved changes" stuck
+forever after a save.
 
-### P7.7 — Security + Caching
+### P7.7 — Security + Caching  ← *next*
 **Security:** one home for 2FA/TOTP enrol + recovery codes, sessions & lockout, SSRF allowlist, and
 admin API tokens (mint/revoke, owner/viewer). *All backend exists — surfacing only.*
 **Caching:** the section P7.5 earned — entries, hit rate, last write, TTL control with a plain

@@ -11,6 +11,62 @@
 
 ---
 
+**Date:** 2026-07-14 · Session 48  
+**Title:** Phase 7.6 — Settings and Logs, and the discovery that none of the new dashboard is being served  
+
+**Summary:**  
+This session began with a question about which phase came next, and the answer turned out to be
+uncomfortable enough to be worth stating first.
+
+**The roadmap had drifted, and so had the truth.** The plan file, a later product re-sequencing, and
+the code had each ended up with a different idea of what the phases were — and the plan file still
+claimed nothing had been built at all. It has been rewritten from scratch against the actual code and
+is now the single source of truth. If a phase is not in it, it is not scheduled.
+
+**And it turned up something more serious.** The gateway still serves the *old* dashboard. The new
+one — the Overview, the redesigned Nexus, model management, Analytics, everything built over the last
+five phases — is not served and is not packaged into the release container. It exists only when a
+developer runs it locally. In other words, none of that work is currently reaching anybody.
+
+It has not been switched over for a good reason: the old dashboard can still do two things the new
+one could not — configure the gateway, and manage team keys. Switching today would have taken working
+controls away from operators, which is a worse sin than a dated design. So the remaining phases are
+now ordered to close that gap and then switch. **Settings was the biggest piece of it, and this
+session closed it.**
+
+**Settings is now live, and it is seven tabs instead of one long scroll:** Routing, Cache, Guardrails,
+Notifications, Network, Compliance, and Appearance. Nothing new was needed from the gateway — every
+one of these has existed and been tested since the 6.x phases; there was simply no way to reach them.
+
+The controls now say what they *do*, because none of them are cosmetic. The cache TTL decides how long
+a stale answer keeps being served, so the panel says so in plain words rather than showing a bare
+number. Retention permanently deletes records, including the ones your cost figures are calculated
+from — so it says that too. Allowing private network addresses lowers a real defence, and the panel
+warns the moment you reach for it. An operator should never have to discover a consequence afterwards.
+
+One quiet trap was closed along the way: the stored email-alert key is never sent back to the browser,
+so the field now loads blank and an empty field means *keep the key you have*. Previously, saving an
+unrelated change on that page would have wiped it.
+
+**Logs is now its own section:** the full audit trail — every change made to the gateway, including
+the ones that were refused — filterable by action and by who did it, with each result coloured by
+what it means. It is read-only, exactly as the gateway enforces: there is deliberately no way to edit
+or delete an entry through the API, so the record that polices the system cannot be quietly rewritten.
+
+**Two real bugs were caught by tests before release.** The new on/off switch was silently dead —
+every click fired twice and landed back where it started, so it did nothing at all. And each settings
+panel could stamp the server's value back over an edit an operator had already made, and would go on
+insisting there were unsaved changes forever after a successful save. Both are fixed, both are covered
+by tests that would catch them again.
+
+Both the gateway and the dashboard pass their full quality gates, and every panel was exercised in a
+live browser — including a real save, end to end — with no errors.
+
+**Next:** Security and Caching, then Teams — and then the switch-over that finally makes all of this
+work visible to the people running it.
+
+---
+
 **Date:** 2026-07-14 · Session 47  
 **Author:** Abbas  
 **Title:** Phase 7.5 — Analytics: reliability, speed, and what the cache is actually saving you  
