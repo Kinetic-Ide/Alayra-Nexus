@@ -11,6 +11,67 @@
 
 ---
 
+**Date:** 2026-07-14 · Session 47  
+**Author:** Abbas  
+**Title:** Phase 7.5 — Analytics: reliability, speed, and what the cache is actually saving you  
+
+**Summary:**  
+This session built the Analytics section. It turned out to be two jobs, not one, and the first was
+the uncomfortable part.
+
+**The data was never being written down.** Nexus only ever recorded a request when it *succeeded*.
+A request that failed — a provider outage, an exhausted key, a rejected call — was counted in the
+internal metrics and then thrown away. And a request served from the cache was recorded as costing
+zero, with the cost it had just avoided discarded on the spot. So the honest answer to "why can't
+the dashboard show me a success rate, or what caching saves me" was never "we haven't drawn the
+chart yet" — it was that the numbers had never been kept. Nothing could be shown, because nothing
+was there.
+
+So the first piece lays that data down. Every request now records what happened to it, how long it
+took, whether the cache served it, and — for a cached request — what calling the provider *would*
+have cost. That last figure is the one that makes cache savings a real number instead of an absence.
+It is written through the existing background pipeline, so the request path still never waits on it,
+and a failed request carries no tokens and no cost, which means every existing spend and usage total
+is completely unchanged.
+
+**One consequence worth stating plainly:** now that failures are recorded, "total requests" counts
+every attempt rather than only the ones that worked. The number on the Overview will therefore be
+higher than before — not because traffic grew, but because it was previously only telling you about
+the half that succeeded. The success and failure rates now sit beside it.
+
+**The second piece is the page itself.** Analytics now opens on a window you choose — today, 7, 30
+or 90 days — and shows: how many requests were attempted, how many succeeded, how many failed, what
+they cost, how fast they were (both the average and the slow tail, because an average hides the
+requests your users actually complain about), how many tokens moved, and what the cache saved. Four
+daily charts sit under that, and hovering any one of them shows the whole day at once — so a cost
+spike and that day's failure count are read together, not on two separate charts.
+
+Below that: which models are busiest, which provider is costing you and which is *failing* you, a
+breakdown by kind of work (text, speech, images, transcription — each shown in the unit it is
+actually billed in), and a plain-English account of what went wrong, with the internal error names
+translated into sentences rather than the raw codes engineers use.
+
+The response cache gets its own card: the money saved, the hit rate, and a daily trend.
+
+**On honesty, deliberately:** an idle window says "no requests" instead of drawing four flat lines
+and a 0% success rate that looks like an outage. A latency that was never measured shows a dash, not
+a confident "0 ms". A cache that has served nothing says so rather than displaying a proud $0. And
+the page carries a short note explaining that failure and latency data begins at this release, so
+nobody reads a suspiciously perfect success rate on older traffic and believes it.
+
+Two bugs were caught and fixed before release. A stream that dies halfway would have been recorded
+as a success while still billing its partial tokens — it is now recorded as the failure it was,
+without losing the billing. And a chart drawn straight from the database would have quietly skipped
+idle days, compressing a quiet week into a continuous-looking line; quiet days are now filled in, so
+the timeline always tells the truth.
+
+Both the gateway and the dashboard pass their full quality gates, and the page was verified live in
+the browser in both light and dark themes with no errors.
+
+**Still to come:** the Caching section's own controls, and per-team analytics.
+
+---
+
 **Date:** 2026-07-14 · Session 46  
 **Author:** Abbas  
 **Title:** Phase 7.4d — editing what you already created, a user cap that actually holds, and headers a provider demands  
