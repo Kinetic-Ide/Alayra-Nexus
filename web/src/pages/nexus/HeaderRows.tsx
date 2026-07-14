@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useState, useRef, useEffect } from 'preact/hooks';
 import { Plus, X } from 'lucide-preact';
 import { Input, Button } from '../../ui';
 import s from '../pages.module.css';
@@ -20,10 +20,31 @@ const toObject = (rows: Row[]): Record<string, string> => {
   return out;
 };
 
+const sameHeaders = (a: Record<string, string>, b: Record<string, string>): boolean => {
+  const ak = Object.keys(a), bk = Object.keys(b);
+  return ak.length === bk.length && ak.every((k) => a[k] === b[k]);
+};
+
 export function HeaderRows({ value, onChange }: { value: Record<string, string>; onChange: (next: Record<string, string>) => void }) {
   const [rows, setRows] = useState<Row[]>(() => toRows(value));
+  // What we last reported upward. Anything arriving in `value` that differs from this came from
+  // outside (e.g. the Add dialog re-seeding defaults when the provider changes), so the rows must
+  // resync — a mount-time snapshot alone would silently ignore it. Our own edits match, so they
+  // never round-trip back and clobber a half-typed row.
+  const lastEmitted = useRef<Record<string, string>>(toObject(toRows(value)));
 
-  const apply = (next: Row[]) => { setRows(next); onChange(toObject(next)); };
+  useEffect(() => {
+    if (sameHeaders(value, lastEmitted.current)) return;
+    lastEmitted.current = { ...value };
+    setRows(toRows(value));
+  }, [value]);
+
+  const apply = (next: Row[]) => {
+    const obj = toObject(next);
+    lastEmitted.current = obj;
+    setRows(next);
+    onChange(obj);
+  };
   const update = (i: number, patch: Partial<Row>) => apply(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const remove = (i: number) => apply(rows.filter((_, j) => j !== i).length ? rows.filter((_, j) => j !== i) : [{ name: '', value: '' }]);
   const add    = () => setRows((rs) => [...rs, { name: '', value: '' }]);

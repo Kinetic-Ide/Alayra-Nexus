@@ -21,4 +21,16 @@ describe('HeaderRows', () => {
     fireEvent.input(inputs[1], { target: { value: 'orphan-value' } });
     expect(onChange).toHaveBeenLastCalledWith({});
   });
+
+  it('resyncs when the parent replaces the headers from outside', () => {
+    // The Add-provider dialog re-seeds defaults when the upstream provider changes. A rows snapshot
+    // taken only at mount would ignore that, leaving the editor blank for a provider that needs a
+    // header (e.g. Anthropic).
+    const { rerender } = render(<HeaderRows value={{}} onChange={vi.fn()} />);
+    expect(screen.queryByDisplayValue('anthropic-version')).not.toBeInTheDocument();
+
+    rerender(<HeaderRows value={{ 'anthropic-version': '2023-06-01' }} onChange={vi.fn()} />);
+    expect(screen.getByDisplayValue('anthropic-version')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('2023-06-01')).toBeInTheDocument();
+  });
 });
