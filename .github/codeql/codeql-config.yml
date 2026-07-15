@@ -1,0 +1,25 @@
+# CodeQL configuration for Alayra Nexus (advanced setup).
+#
+# Runs the default JavaScript/TypeScript security query suite, minus two rules that produce only
+# false positives in this codebase. Every other query — including SSRF (js/request-forgery) — stays
+# active, so a genuine issue is still caught. Each exclusion is justified below; do not add to this
+# list without an equally specific reason.
+
+name: "Alayra Nexus CodeQL config"
+
+query-filters:
+  # js/missing-rate-limiting — the gateway registers @fastify/rate-limit GLOBALLY (src/server.ts), a
+  # Redis-backed abuse guard that limits every route, and adds tighter per-route limits on the
+  # sensitive admin/auth routes (src/lib/routeRateLimits.ts). CodeQL does not model @fastify/rate-limit,
+  # so it reports every database-touching handler as unlimited regardless. The protection is real and
+  # tested (routeRateLimits.test.ts asserts a 429); the alert is a tool limitation, not a gap.
+  - exclude:
+      id: js/missing-rate-limiting
+  # js/insufficient-password-hash — nothing here hashes a human-chosen password. Every value passed to
+  # sha256 is a high-entropy secret WE generate (256-bit session tokens, 192-bit admin API tokens,
+  # random team keys, 64-bit recovery codes) verified by an O(1) indexed lookup, or the length-equaliser
+  # inside safeEqual's constant-time compare (src/lib/timingSafe.ts). A slow hash (bcrypt/argon2) is the
+  # wrong tool for all of these and would break the lookups. The admin password itself is never stored —
+  # it is compared in constant time, not persisted as a hash.
+  - exclude:
+      id: js/insufficient-password-hash

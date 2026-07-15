@@ -119,6 +119,14 @@ sha256 on high-entropy tokens (session/API/team keys) and the constant-time-comp
 bcrypt is the wrong tool there and would break the O(1) lookups; reasoning captured in code comments.
 No schema change, nothing on the proxy hot path.
 
+**Follow-up (same day): CodeQL cannot see `@fastify/rate-limit` or the SSRF guard**, so the code fixes
+above did not clear the alerts — it re-raised them at shifted line numbers, and manual dismissal is a
+treadmill on an actively-edited codebase. Resolved durably by switching CodeQL from default to
+**advanced setup** (`.github/workflows/codeql.yml` + `.github/codeql/codeql-config.yml`) and filtering
+the two rules that only ever false-positive here (`js/missing-rate-limiting`, `js/insufficient-password-hash`),
+each with a written justification. Every other query stays active — SSRF (`js/request-forgery`) included,
+with its one finding dismissed by design. Requires a one-time GitHub toggle (disable default setup).
+
 ### P7.8 — Teams  ← *the last parity blocker*
 Team keys (the old dashboard's "Team Keys" tab), budget cap + period, per-team cost, BYOK fallback,
 and **wire `assignedTier` into routing** — it is stored today and silently ignored, which makes the

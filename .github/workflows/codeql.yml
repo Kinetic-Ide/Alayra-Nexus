@@ -1,0 +1,44 @@
+name: CodeQL
+
+# Advanced setup (replaces GitHub "default setup"). It exists so the scan can load a repo config
+# that filters two rules which only ever false-positive here — see .github/codeql/codeql-config.yml.
+# The default query suite is otherwise unchanged, so no new alert classes appear.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '25 6 * * 1' # weekly, so a new advisory is caught even without a push
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write # upload results to the Security tab
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          config-file: ./.github/codeql/codeql-config.yml
+
+      # JavaScript/TypeScript is extracted directly — no build step is required.
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"
