@@ -19,6 +19,10 @@ function humanDuration(secs: number): string {
   return `${secs} seconds`;
 }
 
+// Warn that recovery codes are running low once this few remain, so an operator regenerates before
+// they can be locked out of their own second factor.
+const LOW_RECOVERY_CODES_THRESHOLD = 3;
+
 function friendlyError(err: unknown, fallback: string): string {
   if (err instanceof ApiError && err.status === 403) {
     return 'Your session is read-only (viewer). An owner credential is required for this.';
@@ -91,7 +95,7 @@ export function SigninSecurity() {
     );
   }
 
-  const low = data.twoFactorEnabled && data.recoveryCodesRemaining <= 3;
+  const low = data.twoFactorEnabled && data.recoveryCodesRemaining <= LOW_RECOVERY_CODES_THRESHOLD;
 
   return (
     <>
@@ -116,7 +120,10 @@ export function SigninSecurity() {
 
             {reveal && (
               <div class={s.secConfirm}>
-                <Field label={reveal === 'regen' ? 'Confirm with an authenticator code' : 'Confirm with an authenticator or recovery code'} hint="6 digits, or a recovery code">
+                <Field
+                  label={reveal === 'regen' ? 'Confirm with an authenticator code' : 'Confirm with an authenticator or recovery code'}
+                  hint={reveal === 'regen' ? '6 digits' : '6 digits, or a recovery code'}
+                >
                   <Input value={code} placeholder="123456" onInput={(e) => setCode((e.target as HTMLInputElement).value)} autofocus />
                 </Field>
                 {reveal === 'regen'
@@ -146,8 +153,8 @@ export function SigninSecurity() {
             {enrol && (
               <div class={s.secEnrol}>
                 <p class={s.setHint}>
-                  Add this to your authenticator app — scan is not needed, both apps accept a typed key.
-                  Enter the code it shows to confirm.
+                  Add this to your authenticator app — a QR code scan is not needed, most authenticator
+                  apps accept a typed key. Enter the code it shows to confirm.
                 </p>
                 <CopyField label="Setup key" value={enrol.secret} />
                 <CopyField label="otpauth" value={enrol.otpauthUri} />

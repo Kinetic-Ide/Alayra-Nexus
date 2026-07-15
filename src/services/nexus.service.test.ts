@@ -55,12 +55,16 @@ const { state, prismaMock } = vi.hoisted(() => {
       update: vi.fn(async () => ({})),
     },
     nexusProvider: {
-      // Handles both query shapes: the legacy tier walk (`where.tier`) and the
-      // model-first per-provider lookup (`where.provider`).
-      findMany: vi.fn(async ({ where }: { where: { tier?: string; provider?: string; isActive?: boolean } }) =>
-        state.providers.filter(p =>
-          (where.tier === undefined || p.tier === where.tier) &&
-          (where.provider === undefined || p.provider === where.provider))),
+      // Handles every query shape the router uses, exactly as Postgres would: the legacy tier walk
+      // (`where.tier`), a single-provider lookup (`where.provider` as a string), and the batched
+      // model-first sweep (`where.provider` as `{ in: [...] }`).
+      findMany: vi.fn(async ({ where }: { where: { tier?: string; provider?: string | { in: string[] }; isActive?: boolean } }) =>
+        state.providers.filter((p) => {
+          const tierOk = where.tier === undefined || p.tier === where.tier;
+          const provOk = where.provider === undefined
+            || (typeof where.provider === 'string' ? p.provider === where.provider : where.provider.in.includes(p.provider));
+          return tierOk && provOk;
+        })),
     },
   };
   return { state, prismaMock };

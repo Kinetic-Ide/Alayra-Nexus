@@ -55,7 +55,7 @@ milestone that makes five phases of work real; nothing after it matters as much.
 
 ---
 
-## 2. Information architecture — 11 sections (was 12)
+## 2. Information architecture — 11 sections (was 12; the removed section was Models)
 
 **Models is gone** — folded into Nexus in P7.4b, where a pool now owns its own models, keys, limits
 and pricing. That was the right call and the IA reflects it.

@@ -222,15 +222,29 @@ async function sweepModels(
   let higherTierWasExhausted = false;
   let currentTier = candidates[0]?.tier;
 
+  // Load every candidate provider's pools in one query, then group in memory, rather than a findMany
+  // per candidate (an N+1 on the routing hot path — the same provider recurs across many candidates).
+  // The global createdAt ordering is preserved within each provider group, so selection is unchanged.
+  const providerSlugs = [...new Set(candidates.map((c) => c.provider))];
+  const allPools = providerSlugs.length
+    ? await prisma.nexusProvider.findMany({
+        where:   { isActive: true, provider: { in: providerSlugs } },
+        orderBy: { createdAt: 'asc' },
+      })
+    : [];
+  const poolsByProvider = new Map<string, typeof allPools>();
+  for (const pool of allPools) {
+    const existing = poolsByProvider.get(pool.provider);
+    if (existing) existing.push(pool);
+    else poolsByProvider.set(pool.provider, [pool]);
+  }
+
   for (const m of candidates) {
     // Track tier transitions so wasDowngrade means "a better tier was attempted and
     // yielded nothing", matching the pool-tier router's semantics.
     if (m.tier !== currentTier) { higherTierWasExhausted = true; currentTier = m.tier; }
 
-    const pools = await prisma.nexusProvider.findMany({
-      where:   { isActive: true, provider: m.provider },
-      orderBy: { createdAt: 'asc' },
-    });
+    const pools = poolsByProvider.get(m.provider) ?? [];
     const routeModel: RouteModel = { modelString: m.modelString, modelId: m.id, tier: m.tier };
     for (const pool of pools) {
       const route = await tryPickKey(pool, reserveTokens, ownerTeamId, routeModel, userId);
@@ -481,8 +495,11 @@ export async function testKey(keyId: string): Promise<{ success: boolean; latenc
   const start   = Date.now();
 
   try {
-    assertSafeUrl(baseUrl, await getSsrfPolicy());
-    const res = await fetch(`${baseUrl}/models`, {
+    // Fetch the validated URL object the SSRF guard returns — not a re-concatenated string — so the
+    // target reaching fetch() is exactly the one vetted (private/metadata/loopback already rejected).
+    const safeUrl = assertSafeUrl(baseUrl, await getSsrfPolicy());
+    safeUrl.pathname = `${stripTrailingSlash(safeUrl.pathname)}/models`;
+    const res = await fetch(safeUrl, {
       headers: withExtraHeaders(key.provider.extraHeaders, { [key.provider.authHeader]: `${key.provider.authPrefix ?? 'Bearer'} ${apiKey}` }),
       signal:  AbortSignal.timeout(5000),
     });
@@ -534,8 +551,11 @@ export async function validateModel(
   const start   = Date.now();
 
   try {
-    assertSafeUrl(baseUrl, await getSsrfPolicy());
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    // Fetch the validated URL object (see testKey / validateProviderCredentials) so the request
+    // target is the one the SSRF guard vetted, not a separately built string.
+    const safeUrl = assertSafeUrl(baseUrl, await getSsrfPolicy());
+    safeUrl.pathname = `${stripTrailingSlash(safeUrl.pathname)}/chat/completions`;
+    const res = await fetch(safeUrl, {
       method:  'POST',
       headers: withExtraHeaders(provider.extraHeaders, {
         'Content-Type': 'application/json',
