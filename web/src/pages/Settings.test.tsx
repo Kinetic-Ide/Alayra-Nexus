@@ -13,7 +13,6 @@ import { Settings } from './Settings';
 
 const CONFIGS: Record<string, unknown> = {
   '/admin/settings/routing':       { costWeight: 0 },
-  '/admin/settings/cache':         { enabled: false, ttlSeconds: 3600 },
   '/admin/settings/guardrails':    { enabled: false, bufferedSafe: false, rules: [] },
   '/admin/settings/notifications': {
     enabled: true, from: 'a@b.com', to: ['ops@b.com'], webhookUrl: '',
@@ -39,45 +38,6 @@ describe('Settings — routing', () => {
   it('describes the cost/speed weight in words, not just a number', async () => {
     render(<Settings />);
     await waitFor(() => expect(screen.getByText(/first available key wins/i)).toBeInTheDocument());
-  });
-});
-
-describe('Settings — cache', () => {
-  it('saves the toggle and TTL, and warns about staleness', async () => {
-    render(<Settings />);
-    await openTab('Cache');
-    await waitFor(() => expect(screen.getByRole('switch', { name: /serve repeat requests from cache/i })).toBeInTheDocument());
-
-    expect(screen.getByText(/Staleness is the trade-off/i)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('switch', { name: /serve repeat requests from cache/i }));
-    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
-
-    await waitFor(() => expect(put).toHaveBeenCalledWith('/admin/settings/cache', { enabled: true, ttlSeconds: 3600 }));
-  });
-
-  it('cannot be saved until something actually changed', async () => {
-    render(<Settings />);
-    await openTab('Cache');
-    await waitFor(() => expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled());
-  });
-
-  it('stops claiming unsaved changes once the save lands', async () => {
-    // The panel re-seeds from what the gateway says it stored. Without that it would compare the
-    // edit against the stale load forever and go on insisting there are unsaved changes.
-    put.mockResolvedValue({ enabled: true, ttlSeconds: 3600 });
-    render(<Settings />);
-    await openTab('Cache');
-    await waitFor(() => expect(screen.getByRole('switch', { name: /serve repeat requests/i })).toBeInTheDocument());
-
-    fireEvent.click(screen.getByRole('switch', { name: /serve repeat requests/i }));
-    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
-    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument());
-    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
-    // …and the re-seeded form reflects what was actually stored.
-    expect(screen.getByRole('switch', { name: /serve repeat requests/i }).getAttribute('aria-checked')).toBe('true');
   });
 });
 

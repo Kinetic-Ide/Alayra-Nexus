@@ -4,9 +4,7 @@ import { PageHeader, Card } from '../ui';
 import s from './pages.module.css';
 
 const PHASE: Record<string, string> = {
-  nexus: 'P7.3', models: 'P7.3', connect: 'P7.3', analytics: 'P7.4',
-  security: 'P7.5', logs: 'P7.5', settings: 'P7.6', caching: 'P7.6',
-  teams: 'P7.8', enterprise: 'P7.8', admin: 'P7.9',
+  teams: 'P7.8', enterprise: 'P7.8', admin: 'P7.13',
 };
 
 /** Every not-yet-built section renders here — the shell and navigation are real, the content

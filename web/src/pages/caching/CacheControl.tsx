@@ -1,13 +1,14 @@
 import { useState } from 'preact/hooks';
 import { Toggle, Field, Input } from '../../ui';
 import type { CacheConfig } from '../../api';
-import { SettingsSection, SaveBar, type SaveCtx } from './SettingsSection';
+import { SettingsSection, SaveBar, type SaveCtx } from '../settings/SettingsSection';
 import s from '../pages.module.css';
 
-// Response cache. The TTL is the whole risk here, so it is spelled out rather than left as a number:
-// a cached answer is replayed without ever asking the provider, which means a stale one is served
-// for as long as the TTL says. That is a real footgun and the operator deserves to be told, not
-// protected from the truth.
+// The response-cache control, relocated from Settings into the Caching section (P7.7) so the switch
+// and the numbers it drives live in one place. It writes the same /admin/settings/cache endpoint it
+// always did. The TTL is the whole risk here, so it is spelled out rather than left as a bare number:
+// a cached answer is replayed without ever asking the provider, so a stale one is served for exactly
+// as long as the TTL says.
 const PRESETS = [
   { label: '5 minutes', secs: 300 },
   { label: '1 hour',    secs: 3600 },
@@ -15,13 +16,14 @@ const PRESETS = [
 ];
 
 function humanTtl(secs: number): string {
-  if (secs < 60)    return `${secs} second${secs === 1 ? '' : 's'}`;
-  if (secs < 3600)  return `${Math.round(secs / 60)} minutes`;
-  if (secs < 86400) return `${(secs / 3600).toFixed(secs % 3600 ? 1 : 0)} hours`;
-  return `${(secs / 86400).toFixed(secs % 86400 ? 1 : 0)} days`;
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  if (secs < 60)   return plural(secs, 'second');
+  if (secs < 3600) return plural(Math.round(secs / 60), 'minute');
+  if (secs < 86400) { const h = secs / 3600; return `${h.toFixed(secs % 3600 ? 1 : 0)} ${h === 1 ? 'hour' : 'hours'}`; }
+  const d = secs / 86400; return `${d.toFixed(secs % 86400 ? 1 : 0)} ${d === 1 ? 'day' : 'days'}`;
 }
 
-export function CachePanel() {
+export function CacheControl() {
   return (
     <SettingsSection<CacheConfig>
       path="/admin/settings/cache"
@@ -48,7 +50,7 @@ function CacheForm({ data, ctx }: { data: CacheConfig; ctx: SaveCtx<CacheConfig>
         checked={enabled}
         onChange={setEnabled}
         label="Serve repeat requests from cache"
-        hint="A cache hit costs nothing and returns instantly. Analytics shows what it has saved you."
+        hint="A cache hit costs nothing and returns instantly. The figures above show what it has saved."
       />
 
       <Field label="How long an answer stays fresh" hint="seconds">

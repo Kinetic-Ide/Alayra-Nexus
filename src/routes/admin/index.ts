@@ -22,6 +22,7 @@ import adminSystemRoutes    from './system.routes';
 import adminOverviewRoutes  from './overview.routes';
 import adminNexusRoutes     from './nexus.routes';
 import adminSettingsRoutes  from './settings.routes';
+import adminCacheRoutes     from './cache.routes';
 import adminProvidersRoutes from './providers.routes';
 import adminKeysRoutes      from './keys.routes';
 import adminModelsRoutes    from './models.routes';
@@ -67,6 +68,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
   await fastify.register(adminOverviewRoutes);
   await fastify.register(adminNexusRoutes);
   await fastify.register(adminSettingsRoutes);
+  await fastify.register(adminCacheRoutes);
   await fastify.register(adminProvidersRoutes);
   await fastify.register(adminKeysRoutes);
   await fastify.register(adminModelsRoutes);

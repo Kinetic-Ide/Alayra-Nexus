@@ -125,6 +125,32 @@ export interface RoutingConfig { costWeight: number }
 
 export interface CacheConfig { enabled: boolean; ttlSeconds: number }
 
+// Mirrors GET /admin/cache/stats (cache.service.ts) — the operational view behind the Caching section.
+export interface CacheStats {
+  config:     CacheConfig;
+  entries:    number;      // cached responses held in Redis right now
+  windowDays: number;      // the window the `recent` figures cover
+  recent: { hits: number; requests: number; hitRate: number; savedUsd: number };
+}
+
+// ── Security (auth.routes.ts) ─────────────────────────────────────────────────
+// Mirrors GET /admin/auth/status — second-factor state plus the sign-in policy facts.
+export interface AuthStatus {
+  twoFactorEnabled:       boolean;
+  enrolmentPending:       boolean;
+  recoveryCodesRemaining: number;
+  sessionTtlSeconds:      number;
+  maxLoginAttempts:       number;
+  lockoutSeconds:         number;
+}
+
+// Mirrors a row of GET /admin/tokens — an admin API token (the plaintext is only ever seen once,
+// at creation).
+export interface AdminApiTokenRow {
+  id: string; name: string; maskedKey: string; role: 'owner' | 'viewer';
+  lastUsedAt: string | null; createdAt: string;
+}
+
 export interface GuardrailRule {
   name: string; pattern: string; flags?: string;
   action: 'block' | 'redact';

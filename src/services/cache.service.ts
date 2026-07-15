@@ -15,6 +15,9 @@
  */
 
 import { getSetting, setSetting } from './settings.service';
+import { prisma } from '../lib/prisma';
+import { countKeys, deleteKeys } from '../lib/redisScan';
+import { RESP_CACHE_PREFIX } from '../lib/responseCache';
 
 // Response cache configuration, resolved from dashboard-editable settings with an
 // environment seed. OFF by default: a fresh deployment caches nothing until an
@@ -55,4 +58,59 @@ export async function setCacheConfig(enabled: boolean, ttlSeconds: number): Prom
     setSetting(SETTING_ENABLED, enabled ? 'true' : 'false'),
     setSetting(SETTING_TTL, String(ttlSeconds > 0 ? Math.floor(ttlSeconds) : DEFAULT_TTL_SECONDS)),
   ]);
+}
+
+// ── Operational view (Phase 7.7) ──────────────────────────────────────────────
+// What the Caching section shows and does: how many entries the cache holds right now, what it has
+// saved lately, and a one-click purge.
+
+const RESP_CACHE_PATTERN = `${RESP_CACHE_PREFIX}*`;
+/** Savings/hit figures are scoped to a recent window: cache outcomes were only recorded from Phase
+ *  7.5a onward, so an all-time view would dilute the rate with rows that never measured a hit. */
+const STATS_WINDOW_DAYS = 7;
+
+export interface CacheStats {
+  config:     CacheConfig;
+  /** Live count of cached responses in Redis right now. */
+  entries:    number;
+  windowDays: number;
+  recent: {
+    hits:     number;   // cache hits served in the window
+    requests: number;   // successful requests in the window (the denominator for the rate)
+    hitRate:  number;   // 0–1, hits over successful requests; 0 when there was no traffic
+    savedUsd: number;   // what those hits would have cost had they hit a provider
+  };
+}
+
+export async function getCacheStats(): Promise<CacheStats> {
+  const since = new Date(Date.now() - STATS_WINDOW_DAYS * 86_400_000);
+  const [config, entries, rows] = await Promise.all([
+    getCacheConfig(),
+    countKeys(RESP_CACHE_PATTERN),
+    prisma.$queryRaw<{ hits: number; successes: number; saved: number | null }[]>`
+      SELECT COUNT(*) FILTER (WHERE "cached")::int              AS hits,
+             COUNT(*) FILTER (WHERE "outcome" = 'success')::int AS successes,
+             SUM("savedUsd")::float8                            AS saved
+      FROM "TokenUsage"
+      WHERE "createdAt" >= ${since}`,
+  ]);
+
+  const r         = rows[0] ?? { hits: 0, successes: 0, saved: 0 };
+  const hits      = Number(r.hits) || 0;
+  const successes = Number(r.successes) || 0;
+  const savedUsd  = Number(r.saved) || 0;
+
+  return {
+    config,
+    entries,
+    windowDays: STATS_WINDOW_DAYS,
+    recent: { hits, requests: successes, hitRate: successes > 0 ? hits / successes : 0, savedUsd },
+  };
+}
+
+/** Empty the response cache. Every namespace shares one prefix, so this necessarily clears the shared
+ *  pool and every team's entries alike — per-team purge is impossible, the namespace lives inside the
+ *  hashed key. Returns how many entries were removed. */
+export async function purgeResponseCache(): Promise<{ deleted: number }> {
+  return { deleted: await deleteKeys(RESP_CACHE_PATTERN) };
 }

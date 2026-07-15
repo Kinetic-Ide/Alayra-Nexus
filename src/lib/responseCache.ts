@@ -72,7 +72,11 @@ export function responseCacheKey(body: Record<string, unknown>, namespace: strin
   return createHash('sha256').update(canonical).digest('hex');
 }
 
-export function cacheRedisKey(key: string): string { return `nexus:respcache:${key}`; }
+// The Redis key prefix every response-cache entry shares. Exported so the Caching section can count
+// and purge them by pattern (`RESP_CACHE_PREFIX + '*'`) without re-hardcoding the string.
+export const RESP_CACHE_PREFIX = 'nexus:respcache:';
+
+export function cacheRedisKey(key: string): string { return `${RESP_CACHE_PREFIX}${key}`; }
 
 export async function getCached(key: string): Promise<CachedCompletion | null> {
   const raw = await redis.get(cacheRedisKey(key));

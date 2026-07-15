@@ -7,6 +7,58 @@
 
 ---
 
+## 2026-07-15 (later)
+
+---
+
+**Date:** 2026-07-15 · Session 50  
+**Title:** Phase 7.7 — the Security and Caching sections come to life  
+
+**Summary:**  
+Two more sections of the dashboard that were empty signposts are now real. As with the settings work
+before them, almost nothing new was needed inside the gateway — the machinery has been there and
+tested for months, with no way to reach it from the redesigned console. This session built the way in.
+
+**Security is now a place, not a placeholder.** It gathers the account defences an operator actually
+has into one screen:
+
+- **Two-factor authentication.** Turn it on and the gateway requires a code from an authenticator app
+  at sign-in, on top of the password. Setup shows a key you paste into your app of choice — no code to
+  scan, which also means no third-party scanning library riding along in the product. Confirming it
+  hands you ten one-time recovery codes, shown once and never again, for the day you lose your phone.
+  You can regenerate those codes or turn the second factor off, and either step asks you to prove it
+  is really you first.
+- **API tokens.** The credentials that scripts and pipelines use in place of the password — because a
+  script cannot type a code from a phone. Each is created with a plain choice of "can change things"
+  or "can only read", is shown in full exactly once at creation, and can be revoked the moment it is
+  no longer trusted.
+- **A read-only note about network egress**, so the security story is told in one place, with a link
+  through to where that policy is actually edited. There is deliberately one editor for it, not two.
+- The screen also states the sign-in rules plainly: how long a session lasts, and how many failed
+  attempts lock a source out and for how long.
+
+**Caching is now the home for the response cache.** The control that turns it on and sets how long a
+cached answer stays fresh has moved here from Settings, so the switch now sits beside the numbers it
+drives, rather than a screen away. Around it are the things that were missing:
+
+- **What the cache is doing right now** — how many answers it is holding, its hit rate over the last
+  week, and what those hits have saved you against paying a provider. Those figures are read over a
+  recent window on purpose: the gateway only began recording cache outcomes a couple of phases ago, so
+  a longer view would quietly flatter the numbers with a stretch of history that was never measured.
+- **A one-click purge**, behind a clear confirmation. It is honest about what it does: there is no way
+  to clear one team's cache alone, so a purge empties everything — the shared pool and every team — and
+  the confirmation says exactly that. Nothing breaks; the next repeat of each request is simply paid
+  for once more and cached afresh.
+
+The purge is built to be safe on a large cache: it clears entries in the background rather than in one
+blocking sweep, so a busy gateway keeps serving traffic while it runs.
+
+Everything was checked end to end in a real browser, in both the light and dark themes, and the full
+automated gate — code style, type safety, tests, production build, and a dependency security scan —
+passes cleanly on both the gateway and the dashboard, with no known vulnerabilities.
+
+---
+
 ## 2026-07-15
 
 ---

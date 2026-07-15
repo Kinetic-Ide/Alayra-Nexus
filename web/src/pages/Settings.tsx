@@ -1,7 +1,6 @@
 import { useState } from 'preact/hooks';
 import { PageHeader, Tabs, type TabItem } from '../ui';
 import { RoutingPanel } from './settings/RoutingPanel';
-import { CachePanel } from './settings/CachePanel';
 import { GuardrailsPanel } from './settings/GuardrailsPanel';
 import { NotificationsPanel } from './settings/NotificationsPanel';
 import { CompliancePanel } from './settings/CompliancePanel';
@@ -13,9 +12,11 @@ import s from './pages.module.css';
 // is a sub-tab that loads and saves only what it owns. Nothing new was needed from the gateway —
 // every endpoint behind these panels has existed and been tested since the 6.x phases and was simply
 // never reachable from the redesigned dashboard.
+//
+// P7.7 moved the response-cache control out to its own Caching section (where it sits with the cache
+// stats and purge), so there is one editor for it, not two.
 const TABS: TabItem[] = [
   { id: 'routing',       label: 'Routing' },
-  { id: 'cache',         label: 'Cache' },
   { id: 'guardrails',    label: 'Guardrails' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'network',       label: 'Network' },
@@ -25,7 +26,6 @@ const TABS: TabItem[] = [
 
 const PANELS: Record<string, () => preact.JSX.Element> = {
   routing:       RoutingPanel,
-  cache:         CachePanel,
   guardrails:    GuardrailsPanel,
   notifications: NotificationsPanel,
   network:       SsrfPanel,

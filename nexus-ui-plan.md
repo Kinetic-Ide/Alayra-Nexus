@@ -50,8 +50,8 @@ milestone that makes five phases of work real; nothing after it matters as much.
 | **P7.4d** | Edit provider / edit key dialogs; **Max Users enforced**; per-provider extra headers (Anthropic `anthropic-version`) | `bd12911` `4ff409b` `5c695e8` |
 | **P7.5** | **Analytics**: per-request outcome + latency + **cache-savings recording** (they were never written down), one aggregate endpoint, live Analytics page | `2d604ef` `7ca17db` `ed2c7b8` |
 
-**Sections live in `web/`:** Overview · Nexus · Connect · Analytics.
-**Still placeholders:** Teams · Enterprise · Security · Caching · Logs · Settings · Admin.
+**Sections live in `web/`:** Overview · Nexus · Connect · Analytics · Security · Caching · Logs · Settings.
+**Still placeholders:** Teams · Enterprise · Admin.
 
 ---
 
@@ -92,11 +92,20 @@ tokens. Plus a review round on the edit dialogs: `PoolModels` remove no longer l
 "keep old"; edit dialog Save buttons tied to their form via `form=`; `Modal` uses `aria-labelledby`;
 registry id-collision suffix increments. Chart geometry locked by a regression test.
 
-### P7.7 — Security + Caching  ← *next*
-**Security:** one home for 2FA/TOTP enrol + recovery codes, sessions & lockout, SSRF allowlist, and
-admin API tokens (mint/revoke, owner/viewer). *All backend exists — surfacing only.*
-**Caching:** the section P7.5 earned — entries, hit rate, last write, TTL control with a plain
-"why staleness matters" note, and one-click purge. *(+ `GET /admin/cache/stats` + purge endpoint.)*
+### ~~P7.7 — Security + Caching~~ ✅ **DONE**
+**Security:** one home for 2FA/TOTP (enrol via manual secret + otpauth URI — no QR dependency —
+confirm, one-time recovery codes, regenerate, disable), admin API tokens (mint owner/viewer,
+plaintext-once, revoke), the sign-in policy facts (session TTL / lockout), and a read-only network-egress
+summary linking to Settings → Network (one editor, no duplicate). All backend already existed.
+**Caching:** the response-cache control **moved here** from Settings (so Settings went 7→6 tabs) and
+now sits beside live stats (entries, 7-day hit rate + savings, scoped to a recent window for honesty)
+and a one-click purge behind an honest confirm. New backend: `GET /admin/cache/stats` +
+`POST /admin/cache/purge` (SCAN + UNLINK, non-blocking; purge is global by design — the namespace is
+inside the hashed key), plus `countKeys`/`deleteKeys` in a testable `lib/redisScan.ts`. The pre-existing
+`POST /admin/cache/flush` (registry-cache bust) was left untouched for parity.
+*Deferred to P7.13:* real viewer role-gating in the new dashboard. Today an owner-only action a viewer
+attempts is met with a plain "your session is read-only" message rather than being hidden — consistent
+with how the rest of the redesigned console behaves, and cleanly fixed once the accounts primitive lands.
 
 ### P7.8 — Teams  ← *the last parity blocker*
 Team keys (the old dashboard's "Team Keys" tab), budget cap + period, per-team cost, BYOK fallback,
