@@ -32,6 +32,7 @@ import adminAuditRoutes     from './audit.routes';
 import adminNotificationsRoutes from './notifications.routes';
 import adminBrandingRoutes  from './branding.routes';
 import adminHealthRoutes    from './health.routes';
+import adminUsersRoutes     from './users.routes';
 import { recordAudit }      from '../../services/audit.service';
 import { deriveAction, shouldAutoAudit } from '../../lib/audit';
 
@@ -56,6 +57,11 @@ export default async function adminRoutes(fastify: FastifyInstance) {
         action:    deriveAction(request.method, url),
         method:    request.method,
         actorRole: request.adminRole ?? 'system',
+        // Who did it (Phase 7.13a). This one hook is why every state-changing admin action gained a
+        // name at once, rather than each route being taught to log its actor and half of them being
+        // forgotten. Null for a token or pre-accounts session — there is nobody to name.
+        actorId:   request.adminUserId ?? null,
+        actorName: request.adminUserName ?? null,
         target:    params.id ?? params.slug ?? null,
         ip:        request.ip,
         status:    reply.statusCode,
@@ -81,4 +87,5 @@ export default async function adminRoutes(fastify: FastifyInstance) {
   await fastify.register(adminNotificationsRoutes);
   await fastify.register(adminBrandingRoutes);
   await fastify.register(adminHealthRoutes);
+  await fastify.register(adminUsersRoutes);
 }

@@ -13,6 +13,8 @@ import { Teams } from './pages/Teams';
 import { Security } from './pages/Security';
 import { Caching } from './pages/Caching';
 import { Health } from './pages/Health';
+import { Admin } from './pages/Admin';
+import { AcceptInvite } from './pages/login/AcceptInvite';
 import { Settings } from './pages/Settings';
 import { Logs } from './pages/Logs';
 import { Placeholder } from './pages/Placeholder';
@@ -30,6 +32,7 @@ const PAGES: Record<string, FunctionComponent> = {
   health:    Health,
   settings:  Settings,
   logs:      Logs,
+  admin:     Admin,
 };
 
 function NotFound() {
@@ -56,6 +59,14 @@ export function App() {
     window.addEventListener('nx:unauthorized', onUnauth);
     return () => window.removeEventListener('nx:unauthorized', onUnauth);
   }, []);
+
+  // Accepting an invite happens BEFORE there is an account to sign in with, so it has to sit outside
+  // the auth gate (Phase 7.13a). Read from the URL directly rather than through the router, which
+  // only mounts below this line — and matched on the path so a signed-in operator who clicks their
+  // own invite link is not silently dropped into the dashboard instead.
+  if (typeof window !== 'undefined' && window.location.pathname === '/invite') {
+    return <AcceptInvite onAuthed={() => setAuthed(true)} />;
+  }
 
   if (!authed) return <Login onAuthed={() => setAuthed(true)} />;
 

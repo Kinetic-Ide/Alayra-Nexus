@@ -38,3 +38,49 @@
   line-height: 1.6;
   margin: 0;
 }
+
+/* ── First run, and recovery (Phase 7.13a) ───────────────────────────────── */
+
+/* The setup and recovery screens carry more explanation than a sign-in, so they need the room. */
+.card:has(.done) { max-width: 440px; }
+
+.done {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.done svg { color: var(--accent); flex-shrink: 0; }
+
+.keyRow { display: flex; align-items: center; gap: 8px; }
+
+/* The recovery key is shown exactly once, so it is set to be read and transcribed accurately:
+   monospaced, selectable, and allowed to wrap rather than being cut off at the edge of the card. */
+.key {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 10px;
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+
+/* A text button that sits inside a form without competing with the primary action. */
+.link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: center;
+}
+.link:hover { color: var(--text); text-decoration: underline; }

@@ -246,3 +246,48 @@
   .themeGrid { grid-template-columns: 1fr; }
   .recoveryGrid { grid-template-columns: 1fr; }
 }
+
+/* ── The master API key (Phase 7.13a) ─────────────────────────────────────────
+   A hint and a Rotate button, not a copy field: the key is stored as a hash, so the gateway has
+   nothing to display. */
+.keyPanel { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.keyLabel { font-size: 12px; font-weight: 550; color: var(--muted); }
+.keyValue { display: flex; align-items: center; gap: 8px; }
+.keyMask {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.keyNone { flex: 1; font-size: 12.5px; color: var(--subtle); }
+.keyNote { font-size: 11.5px; color: var(--subtle); line-height: 1.55; margin: 0; }
+
+/* A secret shown exactly once. Framed to say "act now", and set to be transcribed accurately. */
+.onceBox {
+  border: 1px solid var(--red);
+  background: var(--red-bg, var(--surface-2));
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-bottom: 12px;
+}
+.onceHead { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--text); }
+.onceHead svg { color: var(--red); flex-shrink: 0; }
+.onceKey {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  user-select: all;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}

@@ -15,11 +15,22 @@ query-filters:
   # tested (routeRateLimits.test.ts asserts a 429); the alert is a tool limitation, not a gap.
   - exclude:
       id: js/missing-rate-limiting
-  # js/insufficient-password-hash — nothing here hashes a human-chosen password. Every value passed to
-  # sha256 is a high-entropy secret WE generate (256-bit session tokens, 192-bit admin API tokens,
-  # random team keys, 64-bit recovery codes) verified by an O(1) indexed lookup, or the length-equaliser
-  # inside safeEqual's constant-time compare (src/lib/timingSafe.ts). A slow hash (bcrypt/argon2) is the
-  # wrong tool for all of these and would break the lookups. The admin password itself is never stored —
-  # it is compared in constant time, not persisted as a hash.
+  # js/insufficient-password-hash — every value passed to sha256 in this codebase is a high-entropy
+  # secret WE generate (256-bit session tokens, 192-bit admin API tokens, 192-bit invite tokens,
+  # random team keys, 128-bit recovery keys, 64-bit recovery codes) verified by an O(1) indexed
+  # lookup, or the length-equaliser inside safeEqual's constant-time compare (src/lib/timingSafe.ts).
+  # A slow hash (bcrypt/argon2) is the wrong tool for all of these and would break the lookups.
+  #
+  # UPDATED for Phase 7.13a. This exclusion previously rested on "no human-chosen password is ever
+  # stored", which stopped being true when admin accounts landed. It is still the right exclusion —
+  # the rule fires on the token digests above, where it is wrong — but it no longer proves anything
+  # about passwords, so the guarantee is held by our own gate instead:
+  #
+  #   * src/lib/password.ts is the ONLY place a human-chosen password is hashed, and it uses scrypt
+  #     (memory-hard, per-user salt, cost parameters stored with the digest).
+  #   * src/lib/password.test.ts asserts a stored digest IS scrypt and is NOT a bare sha256, so a
+  #     regression to a fast hash fails the test suite rather than slipping past a quiet scanner.
+  #
+  # If that test is ever deleted, this exclusion must be reconsidered.
   - exclude:
       id: js/insufficient-password-hash

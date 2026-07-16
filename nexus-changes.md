@@ -7,6 +7,85 @@
 
 ---
 
+## 2026-07-17 (Session 60)
+
+---
+
+**Date:** 2026-07-17 · Session 60  
+**Title:** Accounts — the gateway learns who you are  
+
+**Summary:**  
+Until today Alayra Nexus had no idea who you were. There was one password, kept in a server setting,
+and anyone who typed it was simply "the administrator". Everything awkward about running the gateway
+with other people followed from that one fact: to give a colleague access you told them the shared
+password, to take it away you had to change it and tell everyone else the new one, and the security
+log — the record of who changed what — could only ever say "someone with the password". This session
+gives the gateway **accounts**. Everyone signs in as themselves, and the log finally records names.
+
+**Setting up.** The first time you open the dashboard it asks you to create your owner account. It
+wants the administrator password from your server's settings, and that is the point: only the person
+who installed the gateway has it, so nobody who merely finds your web address can claim it first. You
+choose your name, your email and your own password, and you are given a **recovery key** — shown once
+— which is your way back in if you ever forget your password.
+
+**Nothing breaks when you upgrade.** Until you create that account, signing in works exactly as it
+did before: the old password, and your authenticator app if you set one up. When you do create it,
+your existing authenticator **comes with you** — same app, same codes, nothing to set up again. The
+change happens when you decide, not when the update lands.
+
+**After that, the old shared password stops signing anyone in.** It keeps two jobs — setting up a new
+gateway, and resetting one — and that is deliberate. A shared password that still worked would undo
+the whole point: the log would go back to saying "password" instead of your name, and someone who
+left the company would still hold a key to the front door.
+
+**Three levels of access.** A **Viewer** can look but change nothing. An **Admin** runs the gateway
+day to day — providers, keys, models, teams, caching. An **Owner** does all that, plus decides who
+else gets in. This is what lets you hand the running of the gateway to a colleague without also
+handing them the ability to remove you. We went through all 55 restricted actions one by one and
+decided where each belongs; the two an Admin deliberately cannot touch are the network policy that
+limits where the gateway may connect, and the raw settings editor — both because someone who could
+edit the rules that constrain them isn't really constrained.
+
+**Inviting people.** You create an invite and get a link to hand over however you like. It works
+once, expires after a week, and the person sets their own password — you never learn it, so nobody's
+account starts out already known to someone else. We used a link rather than an email on purpose:
+email sending is optional in this gateway and off by default, so an email-only invite would be a
+feature that quietly never worked for most people.
+
+**Removing someone actually removes them.** Their access stops on their very next click — not
+whenever their session happens to expire — and any automation keys they created stop working with
+them. What they did stays in the log under their name, which is deliberate: a record of who did what
+has to outlive the account, or it isn't a record.
+
+**Your master API key is now kept as a fingerprint, not as the key.** It was the only credential in
+the whole system still stored in readable form, while everything else was already scrambled. It is
+shown once, when it's created — the same thing Stripe, OpenAI and GitHub do — and after that the
+Connect page shows only a hint of it and a Rotate button. **Your existing key keeps working**; every
+tool pointed at your gateway is unaffected. The one boot that makes the change prints it a final
+time, so you can save it if you hadn't.
+
+**Passwords are stored properly.** Deliberately slow, memory-hungry scrambling designed to make
+guessing impractical even if someone stole the whole database — and using a tool already built into
+the platform, so nothing new was added that we'd have to keep watching for security problems.
+
+**Also in this session.** Single sign-on now creates a real account for each person instead of an
+anonymous session, so those sign-ins get names in the log too. And a **genuine bug was found by
+testing against a live gateway** rather than in the test suite: the Connect page — the page whose
+only job is "copy this and it works" — was printing a web address with a duplicated segment, so
+copying it would have failed. It had been wrong since the dashboard went live in an earlier session,
+and the tests never caught it because they were checking against an address no real gateway sends.
+Fixed, and the test corrected so it can't slip through again.
+
+**Checks:** every quality gate green on both halves of the project — 638 automated checks on the
+gateway (81 new), 122 on the dashboard (11 new), zero known security vulnerabilities. Verified
+end-to-end against a real live gateway: setting up, signing in, inviting, the three access levels,
+removing someone, and the security log showing real names.
+
+**Next:** the remaining half of this work — seeing the devices you are signed in on, hiding actions a
+viewer cannot take, and the full reset — followed by the interface refinements noted earlier.
+
+---
+
 ## 2026-07-16 (Session 59)
 
 ---

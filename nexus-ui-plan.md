@@ -278,10 +278,80 @@ not 100%. Every status carries its word (Healthy/Degraded/Down, Pass/Slow/Fail) 
 The **readiness checks table is `/ready` rendered** — measured vs threshold vs verdict — so ops and
 the dashboard share one truth. `GET /admin/health/overview` (admin-guarded) is the page's single read.
 
-### P7.13 — Admin (multi-user) + first-run identity
-Sub-admins, role-based viewer users, invites; first-run key generation (hashed) + admin identity
-(name/email/password/TOTP) + device fingerprint + recovery key + the double-confirmed reset-wipe.
-The largest backend item; deliberately last, once the shell exists to present it.
+### ~~P7.13a — Accounts, roles, and first-run identity~~ ✅ **DONE**
+*Split from P7.13 by agreement (Abbas, 2026-07-17): the auth rewrite lands and is verified on its
+own, the way P7.9/P7.9b did, rather than in one blast radius with the UI gating.*
+
+**The finding: there was no user.** One shared `ADMIN_PASSWORD` in an environment variable
+authenticated everyone, and everything else followed from it — the audit trail could only ever say
+"someone with the password", nobody could be added or removed without a redeploy, the second factor
+belonged to the *gateway* rather than to a person, and "viewer" was unreachable for a human without
+pasting a machine token into the password box. The dashboard also **threw away the role** the
+gateway returned at sign-in, which is why P7.7's viewer-gating was blocked on two things, not one.
+
+**The accounts primitive** (migration `0015`, additive): `AdminUser` (name/email/scrypt
+hash/role/status/per-user TOTP/recovery key/source) and `AdminInvite`. Recovery codes gained an
+owner; `AdminApiToken` gained `createdById`; `AuditLog` gained `actorId` + `actorName` —
+**deliberately no foreign key, and the name copied not joined**, because an audit record has to
+outlive the account it describes.
+
+**`ADMIN_PASSWORD` changed job** (Abbas's call: *"close the door"*). It claims the first owner
+account and authorises the reset-wipe; it is refused as a sign-in the moment an owner exists. It
+lives in the deployer's `.env` and nowhere else, so it is proof you *installed* this gateway rather
+than merely found the port — which is what defeats the first-run land-grab. **Nothing changes at
+upgrade:** until the gateway is claimed, sign-in behaves exactly as Phase 6 left it, and every Phase
+6 test still passes against that state on purpose. Claiming **carries an existing authenticator and
+unused recovery codes across**, then NULLS the original — a live secret must exist in one place.
+
+**Three roles** (owner / admin / viewer). Admin runs the gateway day to day; owner additionally
+decides who it belongs to. All 55 owner-guarded routes re-gated: the default became owner-or-admin,
+with an explicit owner-only list — people, invites, SSO, compliance, the master API key, **the SSRF
+policy** (a control the party it constrains must not be able to edit) and **`POST /admin/settings`**
+(an arbitrary key/value setter — every owner-only setting at once wearing a generic coat; an admin
+holding it could set `NEXUS_API_KEY` to a value they already knew).
+
+**Sessions name their subject, not their authority.** `{uid}` in Redis; role and status are read
+from the account on every request. Baking the role in would leave a demoted admin with owner rights
+for twelve hours and a suspended account signed in until its TTL ran out. Verified live: suspending
+someone killed their open session on the very next request.
+
+**The master API key is show-once** (Abbas's call). It was the only credential stored in plain text
+while team keys were hashed and provider keys encrypted. Converted at boot, not in SQL (hashing in a
+migration would demand the pgcrypto extension of everyone's database): the existing key **keeps
+working** and is printed one last time in that boot's log. Connect shows a mask and a Rotate button.
+
+**Also:** SSO now provisions a real account from the `email` claim (the claim's role applies only to
+a *new* account — otherwise an IdP's groups could silently re-promote someone an owner had demoted);
+invites are hand-over links, not emails (delivery is off by default — an email-only invite would be
+the P7.11 trap again); passwords use **scrypt from Node's own crypto** (memory-hard, no new
+dependency, no native build, async so it cannot spike the event-loop lag the Health tab measures).
+The CodeQL justification was rewritten: it claimed in writing that no password is ever stored, which
+this phase ended — the exclusion stays (it fires on our high-entropy token digests, where it is
+wrong) but the guarantee is now held by our own test asserting the stored hash IS scrypt.
+
+**Bug found by live testing, fixed in-phase:** Connect printed
+`…/v1/v1/chat/completions` — the gateway sends an origin-plus-`/v1` base and the endpoint paths
+carry their own `/v1`. Wrong since the P7.9 cutover, on the one page whose entire job is "copy this
+and it works", and the unit test never caught it because its fixture used a base URL with no `/v1`,
+which no real deployment sends. Fixed, with the fixture made realistic.
+
+Green on both packages: backend **638 tests** (+81), web **122** (+11), lint/typecheck/build 0,
+0 vulnerabilities. Verified end-to-end against a real Postgres + Redis: migration applied, the
+plaintext key converted and the old key still authenticating (400 = past auth) while a wrong key is
+401, claim refused without the env secret, password refused after claiming, invite ignoring an
+injected email/role, an admin refused on all five owner-only routes, the last-owner invariant
+holding on the one path that reaches it (an owner **API token**, which has no self to check), and
+the audit trail naming Abbas and Liaqat — with `(nobody)` exactly where there is genuinely nobody.
+
+### P7.13b — Sessions & devices, viewer gating, danger zone
+Sessions & devices (browser, IP, last-seen; revoke one, sign out everywhere) — the honest version of
+the plan's "device fingerprint", which cannot be an auth factor because any client can forge it.
+Real role-gating across every section (**P7.7's deferral, now unblocked** — the dashboard stores the
+role as of 7.13a). The double-confirmed reset-wipe (standing decision #2), which cannot leave an
+audit record of itself: it destroys the table it would write to, so it logs to stdout and says so.
+
+*In the gap, an admin who clicks an owner-only action gets a clear 403 naming what they have and
+what is needed — which is exactly today's behaviour, so the split regresses nothing.*
 
 ### Backlog (unscheduled — pull in when they earn it)
 - **Team stats: Comparison mode** *(Abbas, 2026-07-16)* — a "Compare" button in Team stats to select
@@ -347,6 +417,11 @@ The largest backend item; deliberately last, once the shell exists to present it
 
 - ~~**`Team.assignedTier` is stored and silently ignored by routing.**~~ ✅ Fixed in P7.8 — it now
   biases the model-first candidate ordering (preferred tier first, normal failover after).
+- ~~**There is no user.**~~ ✅ Fixed in P7.13a — one shared `ADMIN_PASSWORD` authenticated everyone,
+  so the audit trail could only say "someone with the password" and nobody could be offboarded.
+  Accounts, three roles, and per-person second factors now; the trail names people.
+- ~~**The dashboard throws away the role it is given at sign-in.**~~ ✅ Fixed in P7.13a — `login()`
+  kept the token and dropped the role, which is why viewer-gating was never possible client-side.
 - **No `Org` model.** The Enterprise section cannot be honest until one exists or the scope shrinks.
 
 ---

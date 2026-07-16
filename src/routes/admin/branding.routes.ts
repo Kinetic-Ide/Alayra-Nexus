@@ -22,7 +22,7 @@ import { FastifyInstance } from 'fastify';
 import { z }               from 'zod';
 import { setBranding }     from '../../services/branding.service';
 import { validateLogoDataUri, MAX_COMPANY_NAME } from '../../lib/branding';
-import { adminOwnerGuard } from './guard';
+import { adminWriteGuard } from './guard';
 
 const brandingSchema = z.object({
   companyName: z.string().max(MAX_COMPANY_NAME).optional(),
@@ -32,7 +32,7 @@ const brandingSchema = z.object({
 });
 
 export default async function adminBrandingRoutes(fastify: FastifyInstance) {
-  fastify.put('/admin/branding', adminOwnerGuard, async (request, reply) => {
+  fastify.put('/admin/branding', adminWriteGuard, async (request, reply) => {
     const parsed = brandingSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: `The company name must be ${MAX_COMPANY_NAME} characters or fewer.` });

@@ -15,15 +15,21 @@
  */
 
 // Admin sign-in, second factor, and the API tokens that scripts use instead.
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z }              from 'zod';
 import * as auth          from '../../services/adminAuth.service';
 import * as metrics       from '../../lib/metrics';
 import { recordAudit }    from '../../services/audit.service';
 import { adminGuard, adminOwnerGuard } from './guard';
 import { AUTH_RATE_LIMIT, rateLimited, withRateLimit } from '../../lib/routeRateLimits';
+import { getClaimStatus, claimGateway } from '../../services/firstRun.service';
+import { changeOwnPassword, regenerateRecoveryKey, resetPasswordWithRecoveryKey, getUser, AdminUserError } from '../../services/adminUsers.service';
 
 const loginSchema = z.object({
+  // Optional, because a gateway that has not been claimed yet still signs in exactly as it did in
+  // Phase 6: the master password alone, no account, no email. Required in practice once claimed —
+  // a missing email simply finds no account and fails like any other wrong credential.
+  email:    z.string().max(200).optional(),
   password: z.string().min(1),
   // A TOTP code or a recovery code. Absent until a second factor is enrolled.
   code:     z.string().max(64).optional(),
@@ -34,12 +40,27 @@ const tokenSchema = z.object({
   name: z.string().min(1).max(80),
   // Access level for the minted token (Phase 6.5). Defaults to owner so existing callers
   // and integrations are unchanged; a viewer token can read but never mutate.
-  role: z.enum(['owner', 'viewer']).default('owner'),
+  role: z.enum(['owner', 'admin', 'viewer']).default('owner'),
 });
 
 function bearer(req: { headers: Record<string, unknown> }): string {
   const h = req.headers.authorization;
   return typeof h === 'string' && h.startsWith('Bearer ') ? h.slice(7) : '';
+}
+
+/**
+ * The account behind the request, or null after answering for us.
+ *
+ * A session minted from an admin API token, or one that predates accounts, has no person behind it.
+ * Those callers can read and operate the gateway, but there is nothing to enrol a second factor on
+ * or change a password for — so say that plainly rather than fail somewhere deeper with a null id.
+ */
+function accountOf(request: FastifyRequest, reply: FastifyReply): string | null {
+  if (request.adminUserId) return request.adminUserId;
+  reply.code(400).send({
+    error: 'This session is not tied to an account, so there is nothing here to change. Sign in with your email and password.',
+  });
+  return null;
 }
 
 export default async function adminAuthRoutes(fastify: FastifyInstance) {
@@ -54,7 +75,7 @@ export default async function adminAuthRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: 'password is required' });
     }
 
-    const result = await auth.login(parsed.data.password, parsed.data.code, request.ip);
+    const result = await auth.login(parsed.data, request.ip);
 
     // Record the sign-in outcome (never the credential). A failed or locked-out attempt is as
     // security-relevant as a success, so every branch is logged with its outcome.
@@ -64,6 +85,10 @@ export default async function adminAuthRoutes(fastify: FastifyInstance) {
       method:    'POST',
       actorRole: result.ok ? result.role : 'system',
       actor:     'password',
+      // Who signed in (Phase 7.13a). Null on a failure by design: attributing a failed attempt to
+      // an account would let the log assert an identity nobody proved.
+      actorId:   result.ok ? result.userId : null,
+      actorName: result.ok ? result.name : null,
       ip:        request.ip,
       status:    result.ok ? 200 : result.reason === 'locked_out' ? 429 : 401,
       detail:    JSON.stringify({ outcome }),
@@ -71,7 +96,15 @@ export default async function adminAuthRoutes(fastify: FastifyInstance) {
 
     if (result.ok) {
       metrics.adminLogin('success');
-      return reply.send({ token: result.token, expiresIn: result.expiresIn, role: result.role });
+      return reply.send({
+        token: result.token, expiresIn: result.expiresIn, role: result.role,
+        user: result.userId ? { id: result.userId, name: result.name } : null,
+      });
+    }
+
+    if (result.reason === 'suspended') {
+      metrics.adminLogin('invalid');
+      return reply.code(403).send({ error: 'This account is suspended. Contact an owner of this gateway.' });
     }
 
     if (result.reason === 'locked_out') {
@@ -103,13 +136,24 @@ export default async function adminAuthRoutes(fastify: FastifyInstance) {
   });
 
   // ── Second factor ─────────────────────────────────────────────────
+  //
+  // Every route here is `adminGuard`, not `adminOwnerGuard`, and that is a deliberate change from
+  // Phase 6 (7.13a). The second factor used to be the gateway's — one secret, owned by whoever held
+  // the password — so gating it on owner made sense. It is a person's now, and a viewer securing
+  // their own account is not an owner-level act. Each route operates strictly on the caller's own
+  // account: there is no user id in any of these paths for someone to pass someone else's.
 
-  fastify.get('/admin/auth/status', adminGuard, async (_req, reply) => {
-    const state = await auth.getTotpState();
+  fastify.get('/admin/auth/status', adminGuard, async (request, reply) => {
+    const state = request.adminUserId
+      ? await auth.getTotpState(request.adminUserId)
+      : { enabled: false, pending: false };
     return reply.send({
       twoFactorEnabled:        state.enabled,
       enrolmentPending:        state.pending,
-      recoveryCodesRemaining:  state.enabled ? await auth.countUnusedRecoveryCodes() : 0,
+      recoveryCodesRemaining:  state.enabled && request.adminUserId ? await auth.countUnusedRecoveryCodes(request.adminUserId) : 0,
+      // False for a session with no account behind it, so the dashboard can explain why the second
+      // factor cannot be set up here instead of showing a button that always fails.
+      hasAccount:              !!request.adminUserId,
       sessionTtlSeconds:       auth.SESSION_TTL_SECONDS,
       maxLoginAttempts:        auth.MAX_LOGIN_ATTEMPTS,
       lockoutSeconds:          auth.LOCKOUT_SECONDS,
@@ -118,46 +162,190 @@ export default async function adminAuthRoutes(fastify: FastifyInstance) {
 
   // Mints a secret and returns it once. Enforcement does not change until the secret
   // is confirmed, so an abandoned enrolment cannot lock anyone out.
-  fastify.post('/admin/auth/totp/enrol', adminOwnerGuard, async (_req, reply) => {
-    if (await auth.isTwoFactorEnabled()) {
+  fastify.post('/admin/auth/totp/enrol', adminGuard, async (request, reply) => {
+    const userId = accountOf(request, reply);
+    if (!userId) return reply;
+
+    if ((await auth.getTotpState(userId)).enabled) {
       return reply.code(409).send({ error: 'Two-factor authentication is already enabled. Disable it first to re-enrol.' });
     }
-    const { secret, otpauthUri } = await auth.beginTotpEnrolment();
+    const account = await getUser(userId);
+    // Label the entry in the authenticator app with the person's email, not a generic "admin" —
+    // several people may now hold codes for the same gateway.
+    const { secret, otpauthUri } = await auth.beginTotpEnrolment(userId, account?.email ?? 'admin');
     return reply.send({ secret, otpauthUri });
   });
 
-  fastify.post('/admin/auth/totp/confirm', withRateLimit(adminOwnerGuard, AUTH_RATE_LIMIT), async (request, reply) => {
+  fastify.post('/admin/auth/totp/confirm', withRateLimit(adminGuard, AUTH_RATE_LIMIT), async (request, reply) => {
+    const userId = accountOf(request, reply);
+    if (!userId) return reply;
     const parsed = codeSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'code is required' });
 
-    const { ok, recoveryCodes } = await auth.confirmTotp(parsed.data.code);
+    const { ok, recoveryCodes } = await auth.confirmTotp(userId, parsed.data.code);
     if (!ok) return reply.code(400).send({ error: 'That code is not valid. Check your device clock and try again.' });
 
+    // Recorded by the automatic hook (`auth.totp.confirm`), which now carries the actor.
     // Shown exactly once. They are stored only as hashes.
     return reply.send({ success: true, recoveryCodes });
   });
 
-  fastify.post('/admin/auth/totp/disable', withRateLimit(adminOwnerGuard, AUTH_RATE_LIMIT), async (request, reply) => {
+  fastify.post('/admin/auth/totp/disable', withRateLimit(adminGuard, AUTH_RATE_LIMIT), async (request, reply) => {
+    const userId = accountOf(request, reply);
+    if (!userId) return reply;
     const parsed = codeSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'code is required' });
 
-    const ok = await auth.disableTotp(parsed.data.code);
+    const ok = await auth.disableTotp(userId, parsed.data.code);
     if (!ok) return reply.code(400).send({ error: 'A valid authenticator or recovery code is required to disable two-factor authentication.' });
+
+    // Recorded by the automatic hook (`auth.totp.disable`), which now carries the actor.
     return reply.send({ success: true });
   });
 
-  fastify.post('/admin/auth/recovery-codes', withRateLimit(adminOwnerGuard, AUTH_RATE_LIMIT), async (request, reply) => {
+  fastify.post('/admin/auth/recovery-codes', withRateLimit(adminGuard, AUTH_RATE_LIMIT), async (request, reply) => {
+    const userId = accountOf(request, reply);
+    if (!userId) return reply;
     const parsed = codeSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'code is required' });
-    if (!await auth.isTwoFactorEnabled()) return reply.code(409).send({ error: 'Two-factor authentication is not enabled.' });
+    if (!(await auth.getTotpState(userId)).enabled) {
+      return reply.code(409).send({ error: 'Two-factor authentication is not enabled.' });
+    }
 
     // Re-prove possession before reissuing: a hijacked session must not be able to
     // mint itself a permanent bypass of the second factor.
-    if (!await auth.verifyTotpCode(parsed.data.code)) {
+    if (!await auth.verifyTotpCode(userId, parsed.data.code)) {
       return reply.code(400).send({ error: 'That code is not valid.' });
     }
-    const recoveryCodes = await auth.regenerateRecoveryCodes();
+    const recoveryCodes = await auth.regenerateRecoveryCodes(userId);
     return reply.send({ recoveryCodes });
+  });
+
+  // ── First run: claiming the gateway (Phase 7.13a) ─────────────────
+  //
+  // Both routes are deliberately unguarded — there is no credential to present on a gateway with no
+  // accounts. What stands in for one is ADMIN_PASSWORD, which lives in the deployer's .env: proof
+  // that you are the person who installed this, not merely someone who found the port first.
+
+  fastify.get('/admin/setup/status', rateLimited(AUTH_RATE_LIMIT), async (_req, reply) => {
+    // Says only whether the gateway has been claimed and whether an existing authenticator will be
+    // carried over. Nothing here helps an attacker: an unclaimed gateway announces itself the moment
+    // it serves a sign-in page, and the claim still needs the environment secret.
+    return reply.send(await getClaimStatus());
+  });
+
+  fastify.post('/admin/setup/claim', rateLimited(AUTH_RATE_LIMIT), async (request, reply) => {
+    const schema = z.object({
+      masterPassword: z.string().min(1),
+      name:           z.string().min(1).max(80),
+      email:          z.string().min(3).max(200),
+      password:       z.string().min(1).max(200),
+    });
+    const parsed = schema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Fill in every field to create your account.' });
+
+    try {
+      const result = await claimGateway(parsed.data);
+      // The first entry in the trail that names a person — and the record of when this gateway
+      // stopped belonging to whoever held the password.
+      recordAudit({
+        action: 'admin.claim', method: 'POST', actorRole: 'owner', actor: 'password',
+        actorId: result.user.id, actorName: result.user.name, ip: request.ip, status: 200,
+        detail: JSON.stringify({ twoFactorCarriedOver: result.twoFactorCarriedOver }),
+      });
+      // Signed in immediately: making someone create an account and then type the password they
+      // just chose is ceremony, not security.
+      const session = await auth.createSession({ userId: result.user.id });
+      return reply.send({
+        user: result.user,
+        recoveryKey: result.recoveryKey,
+        twoFactorCarriedOver: result.twoFactorCarriedOver,
+        token: session.token,
+        expiresIn: session.expiresIn,
+        role: result.user.role,
+      });
+    } catch (e) {
+      if (e instanceof AdminUserError) {
+        recordAudit({
+          action: 'admin.claim', method: 'POST', actorRole: 'system', actor: 'password',
+          ip: request.ip, status: e.status, detail: JSON.stringify({ outcome: 'refused' }),
+        });
+        return reply.code(e.status).send({ error: e.message });
+      }
+      throw e;
+    }
+  });
+
+  // ── Your own account (Phase 7.13a) ────────────────────────────────
+
+  fastify.get('/admin/me', adminGuard, async (request, reply) => {
+    const account = request.adminUserId ? await getUser(request.adminUserId) : null;
+    // A token-minted or pre-accounts session has a role but no person. Reporting the role with a
+    // null account is the honest answer, and lets the dashboard say so rather than invent a name.
+    return reply.send({ account, role: request.adminRole ?? 'viewer' });
+  });
+
+  fastify.post('/admin/me/password', withRateLimit(adminGuard, AUTH_RATE_LIMIT), async (request, reply) => {
+    const userId = accountOf(request, reply);
+    if (!userId) return reply;
+    const schema = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(1).max(200) });
+    const parsed = schema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Enter your current and new password.' });
+
+    try {
+      await changeOwnPassword(userId, parsed.data.currentPassword, parsed.data.newPassword);
+      recordAudit({
+        action: 'auth.password.change', method: 'POST', actorRole: request.adminRole ?? 'system',
+        actorId: userId, actorName: request.adminUserName ?? null, ip: request.ip, status: 200,
+      });
+      return reply.send({ success: true });
+    } catch (e) {
+      if (e instanceof AdminUserError) return reply.code(e.status).send({ error: e.message });
+      throw e;
+    }
+  });
+
+  fastify.post('/admin/me/recovery-key', withRateLimit(adminGuard, AUTH_RATE_LIMIT), async (request, reply) => {
+    const userId = accountOf(request, reply);
+    if (!userId) return reply;
+    try {
+      const recoveryKey = await regenerateRecoveryKey(userId);
+      return reply.send({ recoveryKey }); // shown once; stored only as a hash
+    } catch (e) {
+      if (e instanceof AdminUserError) return reply.code(e.status).send({ error: e.message });
+      throw e;
+    }
+  });
+
+  // Unguarded by necessity: the whole point is that you cannot sign in. The recovery key itself is
+  // the credential — 128 bits, single use, and rate-limited here on top.
+  fastify.post('/admin/auth/recover', rateLimited(AUTH_RATE_LIMIT), async (request, reply) => {
+    const schema = z.object({
+      email:       z.string().min(3).max(200),
+      recoveryKey: z.string().min(1).max(100),
+      newPassword: z.string().min(1).max(200),
+    });
+    const parsed = schema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Enter your email, recovery key, and a new password.' });
+
+    try {
+      const replacement = await resetPasswordWithRecoveryKey(parsed.data.email, parsed.data.recoveryKey, parsed.data.newPassword);
+      recordAudit({
+        action: 'auth.password.recover', method: 'POST', actorRole: 'system', actor: 'recovery-key',
+        ip: request.ip, status: 200, detail: JSON.stringify({ email: parsed.data.email }),
+      });
+      // A new key, because the old one is spent. Shown once, exactly like the first.
+      return reply.send({ success: true, recoveryKey: replacement });
+    } catch (e) {
+      if (e instanceof AdminUserError) {
+        recordAudit({
+          action: 'auth.password.recover', method: 'POST', actorRole: 'system', actor: 'recovery-key',
+          ip: request.ip, status: e.status, detail: JSON.stringify({ outcome: 'refused' }),
+        });
+        return reply.code(e.status).send({ error: e.message });
+      }
+      throw e;
+    }
   });
 
   // ── Admin API tokens ──────────────────────────────────────────────
@@ -169,7 +357,10 @@ export default async function adminAuthRoutes(fastify: FastifyInstance) {
   fastify.post('/admin/tokens', adminOwnerGuard, async (request, reply) => {
     const parsed = tokenSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'name is required' });
-    const token = await auth.createAdminApiToken(parsed.data.name, parsed.data.role);
+    // Attributed to whoever minted it (7.13a) — which is what makes removing them revoke it.
+    // Not audited here: the automatic hook in index.ts already records this as `tokens.create`,
+    // and now carries the actor, so an explicit entry would only be a duplicate.
+    const token = await auth.createAdminApiToken(parsed.data.name, parsed.data.role, request.adminUserId ?? null);
     return reply.code(201).send({ token }); // plaintext returned once
   });
 

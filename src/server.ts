@@ -29,7 +29,7 @@ import { startHealthSampler, runReadyChecks } from './services/healthSampler.ser
 import { prisma }         from './lib/prisma';
 import { redis }          from './lib/redis';
 import { deriveRateLimitKey } from './lib/rateLimitKey';
-import { getSetting, setSetting } from './services/settings.service';
+import { ensureApiKey }    from './services/apiKey.service';
 import { reconcilePoolsToRegistry } from './services/model.service';
 import { drainUsage }     from './services/usagePipeline';
 import { drainAudit, runRetention } from './services/audit.service';
@@ -37,7 +37,6 @@ import { metricsText, metricsContentType } from './lib/metrics';
 import { verifyMetricsToken } from './middleware/auth.middleware';
 import { assertDependencies, StartupCheckError } from './services/preflight.service';
 import { isSpaNavigation } from './lib/spaFallback';
-import { randomUUID }     from 'crypto';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -65,13 +64,14 @@ async function bootstrap() {
     console.warn('  Model registry reconcile skipped:', err instanceof Error ? err.message : err);
   }
 
-  // ── Generate API key on first run ────────────────────────────────
-  const existing = await getSetting('NEXUS_API_KEY');
-  if (!existing || existing === 'REPLACE_ON_INIT') {
-    const key = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '');
-    await setSetting('NEXUS_API_KEY', key);
-    console.log('\n🔑  Generated Nexus API Key (save this):');
-    console.log(`    ${key}`);
+  // ── Generate the API key on first run, and hash an existing one ──
+  // Phase 7.13a: the key is stored as a hash now and shown exactly once. `ensureApiKey` also
+  // converts a pre-7.13a plaintext key in place — the key keeps working, and that boot's log is
+  // the last time it can be printed.
+  const newKey = await ensureApiKey();
+  if (newKey) {
+    console.log('\n🔑  Generated Nexus API Key — SAVE IT NOW, it cannot be shown again:');
+    console.log(`    ${newKey}`);
     console.log('    Add it to Cursor as: Authorization: Bearer <key>\n');
   }
 

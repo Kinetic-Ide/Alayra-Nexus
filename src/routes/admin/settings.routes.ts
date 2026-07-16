@@ -25,7 +25,7 @@ import { getSsrfConfig, setSsrfConfig } from '../../services/ssrf.service';
 import { getNotificationConfigForUI, setNotificationConfig } from '../../services/notifications.service';
 import { prisma }              from '../../lib/prisma';
 import { z }                   from 'zod';
-import { adminGuard, adminOwnerGuard } from './guard';
+import { adminGuard, adminOwnerGuard, adminWriteGuard } from './guard';
 
 export default async function adminSettingsRoutes(fastify: FastifyInstance) {
   // ── SSRF / network security ───────────────────────────────────────
@@ -40,6 +40,10 @@ export default async function adminSettingsRoutes(fastify: FastifyInstance) {
     allowList:    z.array(z.string().regex(/^[a-z0-9.:_-]+$/i, 'Use host or host:port only')).max(50),
   });
 
+  // OWNER-ONLY, deliberately (7.13a), while the rest of Settings moved to owner-or-admin. This is
+  // the boundary on where the gateway may connect, and an admin already chooses provider base URLs
+  // — so an admin who could also edit the policy that constrains those URLs would be editing their
+  // own leash. A control is only a control if the party it constrains cannot change it.
   fastify.put('/admin/settings/ssrf', adminOwnerGuard, async (request, reply) => {
     const body = ssrfSchema.parse(request.body);
     await setSsrfConfig(body.allowPrivate, body.allowList);
@@ -65,7 +69,7 @@ export default async function adminSettingsRoutes(fastify: FastifyInstance) {
     })).max(100),
   });
 
-  fastify.put('/admin/settings/guardrails', adminOwnerGuard, async (request, reply) => {
+  fastify.put('/admin/settings/guardrails', adminWriteGuard, async (request, reply) => {
     const body = guardrailSchema.parse(request.body);
     // Reject rules whose regex will not compile, so a bad pattern is caught at
     // save time rather than silently skipped on the request path.
@@ -85,7 +89,7 @@ export default async function adminSettingsRoutes(fastify: FastifyInstance) {
 
   const routingSchema = z.object({ costWeight: z.number().min(0).max(1) });
 
-  fastify.put('/admin/settings/routing', adminOwnerGuard, async (request, reply) => {
+  fastify.put('/admin/settings/routing', adminWriteGuard, async (request, reply) => {
     const body = routingSchema.parse(request.body);
     await setCostWeight(body.costWeight);
     return reply.send(await getRoutingConfigForUI());
@@ -102,7 +106,7 @@ export default async function adminSettingsRoutes(fastify: FastifyInstance) {
     ttlSeconds: z.number().int().min(1).max(2592000), // up to 30 days
   });
 
-  fastify.put('/admin/settings/cache', adminOwnerGuard, async (request, reply) => {
+  fastify.put('/admin/settings/cache', adminWriteGuard, async (request, reply) => {
     const body = cacheSchema.parse(request.body);
     await setCacheConfig(body.enabled, body.ttlSeconds);
     return reply.send(await getCacheConfigForUI());
@@ -131,7 +135,7 @@ export default async function adminSettingsRoutes(fastify: FastifyInstance) {
     windowSeconds: z.number().int().min(60).max(86400).default(3600),
   });
 
-  fastify.put('/admin/settings/notifications', adminOwnerGuard, async (request, reply) => {
+  fastify.put('/admin/settings/notifications', adminWriteGuard, async (request, reply) => {
     const body = notificationsSchema.parse(request.body);
     await setNotificationConfig(body);
     return reply.send(await getNotificationConfigForUI());
@@ -139,18 +143,37 @@ export default async function adminSettingsRoutes(fastify: FastifyInstance) {
 
   // ── Settings ──────────────────────────────────────────────────────
 
+  // Settings whose values this generic list must never carry. The API key's HASH joins the list in
+  // 7.13a: it cannot be reversed, but it is the value the gateway checks credentials against, and a
+  // raw settings dump is no place for it. The mask (NEXUS_API_KEY_MASK) is fine — it is a hint.
+  const NEVER_LIST = new Set(['ENCRYPTION_SECRET', 'NEXUS_API_KEY_HASH']);
+
   fastify.get('/admin/settings', adminGuard, async (_req, reply) => {
     const rows = await prisma.appSettings.findMany();
-    // Never expose encrypted values
     const safe = rows
-      .filter(r => r.key !== 'ENCRYPTION_SECRET')
+      .filter(r => !NEVER_LIST.has(r.key))
+      // NEXUS_API_KEY is converted to a hash at boot and its row deleted, so this should never
+      // match. Kept as a belt-and-braces guard: if a plaintext key ever reappears, it must not be
+      // this route that hands it out.
       .map(r => ({ key: r.key, value: r.key === 'NEXUS_API_KEY' ? maskKey(r.value) : r.value }));
     return reply.send({ settings: safe });
   });
 
+  // OWNER-ONLY, deliberately (7.13a). This writes an ARBITRARY settings key, so it is every
+  // owner-only setting at once wearing a generic coat: an admin holding it could set NEXUS_API_KEY
+  // to a value they already know and hand themselves the gateway's front door. The specific,
+  // schema-checked routes above are what an admin gets.
   fastify.post('/admin/settings', adminOwnerGuard, async (request, reply) => {
     const { key, value } = request.body as { key: string; value: string };
     if (key === 'ENCRYPTION_SECRET') return reply.code(403).send({ error: 'Forbidden' });
+    // The API key is managed by its own service now (7.13a). Writing NEXUS_API_KEY here would be
+    // WORSE than refused — it would appear to succeed and change nothing, because the gateway
+    // authenticates against the hash. A refusal that names the right door beats a silent no-op.
+    if (key === 'NEXUS_API_KEY' || key === 'NEXUS_API_KEY_HASH' || key === 'NEXUS_API_KEY_MASK') {
+      return reply.code(400).send({
+        error: 'The Nexus API key is not editable here. Use Rotate on the Connect page to issue a new one — it is shown once and stored only as a hash.',
+      });
+    }
     await setSetting(key, value);
     return reply.send({ success: true });
   });

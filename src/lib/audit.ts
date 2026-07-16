@@ -35,12 +35,20 @@ export function isMutation(method: string): boolean {
 
 // Auth and SSO routes are recorded explicitly by their handlers (with the outcome and role
 // the hook cannot see), so the automatic hook skips them to avoid a thinner duplicate.
+//
+// The 7.13a additions are here for the same reason, and share a trait: none of them has a session
+// behind it, so the hook could only ever record them as anonymous. The handler knows who was
+// created or recovered; the hook does not.
 const AUTO_EXCLUDE = new Set([
   '/admin/login',
   '/admin/logout',
   '/admin/sso/login',
   '/admin/sso/callback',
   '/admin/sso/enabled',
+  '/admin/setup/claim',     // records whether the old second factor was carried over
+  '/admin/auth/recover',    // no session: the recovery key is the credential
+  '/admin/invites/accept',  // records the account that was just created, which the hook cannot see
+  '/admin/me/password',     // recorded as auth.password.change, not the hook's `me.password.create`
 ]);
 
 /**

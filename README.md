@@ -159,7 +159,11 @@ docker compose up -d
 
 Dashboard is live at `http://localhost:3000`. The container applies its own database
 migrations on startup, and prints your generated Nexus API key on first run —
-`docker compose logs nexus` to see it.
+`docker compose logs nexus` to see it. **Save it then: the key is stored as a hash, so it is shown
+once and never again** (lost it? rotate for a new one from **Connect**).
+
+Open the dashboard and it will ask you to create your owner account, using the `ADMIN_PASSWORD` you
+set above — see [Accounts and roles](#accounts-and-roles).
 
 `DATABASE_URL` and `REDIS_URL` are set by Compose; you do not need to supply them.
 Omit `NEXUS_VERSION` to track `latest`, but pin it in production.
@@ -323,7 +327,7 @@ curl http://<your-host>:3000/v1/chat/completions \
 | `DATABASE_URL` | Yes | PostgreSQL connection string (`postgresql://user:pass@host:5432/db`) |
 | `REDIS_URL` | Yes | Redis connection string (`redis://localhost:6379`) |
 | `MASTER_ENCRYPTION_KEY` | Yes | 64 hex characters (32 bytes) — encrypts all stored API keys |
-| `ADMIN_PASSWORD` | Yes | Dashboard admin password |
+| `ADMIN_PASSWORD` | Yes | The gateway's deployment secret. Claims the first owner account on first run, and authorises a full reset. **Not** a day-to-day login once an owner exists — see [Accounts and roles](#accounts-and-roles). |
 | `PORT` | No | HTTP port (default: `3000`) |
 | `LOG_LEVEL` | No | Pino log level: `info`, `debug`, `warn` (default: `info`) |
 | `ABUSE_RATE_LIMIT_MAX` | No | Requests **per credential** per window before the abuse guard trips (default: `12000`). This is DoS/abuse protection, **not** a throughput cap — see [Rate limits, explained](#rate-limits-explained). |
@@ -584,7 +588,10 @@ curl http://localhost:3000/v1/chat/completions \
 | `GET` | `/admin/analytics/timeseries/teams` | Daily time series by team |
 | `GET` | `/admin/analytics/timeseries/models` | Daily time series by model |
 
-All admin routes require `Authorization: Bearer <ADMIN_PASSWORD>`.
+All admin routes require `Authorization: Bearer <token>` — a session token from `POST /admin/login`,
+or an admin API token for scripts and CI. On a gateway that has not been claimed yet, the raw
+`ADMIN_PASSWORD` is still accepted, exactly as it was before Phase 7.13a; creating an owner account
+closes that door. See [Accounts and roles](#accounts-and-roles).
 
 ---
 
@@ -642,22 +649,76 @@ node --require @opentelemetry/auto-instrumentations-node/register dist/server.js
 | Layer | Implementation |
 |---|---|
 | **Key encryption** | AES-256-GCM with a per-deployment `MASTER_ENCRYPTION_KEY`; plaintext keys never touch the database |
-| **Admin authentication** | Password exchanged at `/admin/login` for a short-lived session token; optional TOTP second factor; per-source lockout after repeated failures (see below) |
-| **Constant-time secrets** | The admin password, the Nexus API key, and the metrics token are compared with `crypto.timingSafeEqual` over fixed-width digests, so rejection latency reveals nothing about the secret |
+| **Admin authentication** | Per-person accounts; email and password exchanged at `/admin/login` for a short-lived session token; optional per-user TOTP second factor; per-source lockout after repeated failures (see below) |
+| **Password hashing** | scrypt (memory-hard), per-user salt, cost parameters stored with the digest. The only human-chosen secret the gateway stores |
+| **Constant-time secrets** | The admin password and the metrics token are compared with `crypto.timingSafeEqual` over fixed-width digests, so rejection latency reveals nothing about the secret |
+| **Nexus API key hashing** | SHA-256; shown once when generated or rotated, never stored in the clear and never displayable again |
 | **Team key hashing** | SHA-256; plaintext shown once at creation, never stored |
+| **Audit attribution** | Every state-changing admin action records the account that performed it, by name — copied onto the record, so it outlives the account |
 | **HTTP hardening** | Fastify Helmet — `X-Frame-Options`, `X-Content-Type-Options`, HSTS, CSP headers |
 | **CORS** | Configurable origin allowlist |
 | **SSRF protection** | Outbound provider requests are restricted to http(s) **and** blocked from private/loopback/internal hosts by default (see below) |
 | **No telemetry** | Zero outbound calls to Alayra Systems or any third party. All data stays in your infrastructure |
 
+### Accounts and roles
+
+The gateway has **accounts**. Everyone who administers it signs in as themselves, with their own
+email, password and second factor — so the audit trail records **who** did each thing, and one person
+can be removed without disturbing anyone else.
+
+**First run.** A fresh gateway has no accounts, so the dashboard opens on a setup screen. It asks for
+`ADMIN_PASSWORD` from your server's environment: that is the proof you are the person who installed
+this gateway rather than the first stranger to find the port. You create the owner account, and are
+handed a **recovery key** — shown once, and the way back if you forget your password.
+
+After that, `ADMIN_PASSWORD` is **refused as a sign-in**. It keeps two jobs: claiming a fresh
+gateway, and authorising a full reset. Everything else goes through an account.
+
+> [!NOTE]
+> **Upgrading changes nothing until you choose.** On a gateway that has not been claimed, sign-in
+> behaves exactly as it did before: `ADMIN_PASSWORD`, and the second factor if you enrolled one. When
+> you claim, your existing authenticator and unused recovery codes **carry over** to your new account
+> — nothing to set up again.
+
+**Three roles.**
+
+| Role | Can |
+|---|---|
+| **Owner** | Everything, including managing people, single sign-on, compliance/retention, the master API key, and resetting the gateway. |
+| **Admin** | Run the gateway day to day: provider pools, keys, models, teams, caching, routing, guardrails. Cannot manage people or edit the controls that constrain admins (SSRF policy, arbitrary settings). |
+| **Viewer** | Read-only. Every mutation is refused. |
+
+**Invites** are links, not emails: an owner creates one and hands it over however they like (email
+delivery is optional in this gateway, so an email-only invite would be a flow that silently never
+works for most deployments). Each works once, expires after 7 days, and the invitee chooses their own
+password — the owner never learns it.
+
+**Removing someone** revokes the admin API tokens they created and kills their sessions on the next
+request. What they did stays in the audit trail under their name: a record of who did what has to
+outlive the account.
+
+**Single sign-on** provisions an account from the `email` claim on first sign-in. The claim's role
+applies only to a *new* account — for one that already exists, what an owner set in the Users tab
+wins, so an identity provider's groups cannot silently re-promote someone.
+
+**Locked out?** Your **recovery key** resets a forgotten password. Your **recovery codes** stand in
+for a lost authenticator. Lose both, and the documented way back is a full reset of the gateway,
+which erases everything in it.
+
 ### Admin authentication
 
-Signing in `POST`s your password (and, once enrolled, an authenticator code) to
+Signing in `POST`s your email and password (and, once enrolled, an authenticator code) to
 `/admin/login` and receives a **session token**. The dashboard stores only that token;
-your admin password is never written to browser storage.
+your password is never written to browser storage.
 
-**Two-factor authentication (TOTP)** is optional and off by default. Enable it from
-**Settings**, or via the API:
+Passwords are stored with **scrypt** — memory-hard, per-user salt, cost parameters kept with the
+digest so they can be raised later without invalidating anyone. It is the only human-chosen secret
+the gateway stores; every other credential here is a high-entropy value the gateway generates and
+keeps only as a hash.
+
+**Two-factor authentication (TOTP)** is optional, off by default, and **each person's own** — it used
+to be a single secret for the whole gateway, shared by everyone who knew the password. Enable it from
+**Security → Sign-in**, or via the API:
 
 ```bash
 # 1. Enrol — returns a secret and an otpauth:// URI for your authenticator app
@@ -673,10 +734,11 @@ can never lock you out. Recovery codes are shown once and stored only as hashes;
 one of them may be used in place of an authenticator code.
 
 > [!IMPORTANT]
-> **Once 2FA is enabled, `ADMIN_PASSWORD` stops working as a bearer token on
-> `/admin/*`.** It has to: if the password still authenticated API calls, anyone
-> holding it would bypass the second factor entirely. Use a session token, or an
-> **admin API token** for scripts and CI:
+> **`ADMIN_PASSWORD` stops working as a bearer token on `/admin/*`** once you claim the gateway, or
+> once 2FA is enabled — whichever comes first. Both have to close that door: a password that still
+> authenticated API calls would bypass the second factor entirely, and would put the audit trail back
+> to saying "password" instead of a name. Use a session token, or an **admin API token** for scripts
+> and CI:
 >
 > ```bash
 > curl -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \

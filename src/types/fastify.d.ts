@@ -23,9 +23,16 @@ import 'fastify';
 declare module 'fastify' {
   interface FastifyRequest {
     teamKeyId?: string;
-    /** The admin caller's role (Phase 6.5), set by verifyAdminPassword: "owner" (full) or
-     *  "viewer" (read-only). requireOwner reads it to gate mutating routes. */
-    adminRole?: 'owner' | 'viewer';
+    /** The admin caller's role, set by verifyAdminPassword: "owner" (full), "admin" (runs the
+     *  gateway day to day, Phase 7.13a) or "viewer" (read-only). The guards read it to gate
+     *  mutating routes. */
+    adminRole?: 'owner' | 'admin' | 'viewer';
+    /** Which account is behind the request (Phase 7.13a), or undefined for a token-minted or
+     *  pre-accounts session — there is genuinely nobody to name in those cases. This is what lets
+     *  the audit trail record a person rather than only a role. */
+    adminUserId?: string;
+    /** The account's display name, carried so audit writes need no second lookup. */
+    adminUserName?: string;
     /** Present when the key belongs to a Team — carries what budget enforcement and BYOK scoping need. */
     team?: {
       id:           string;

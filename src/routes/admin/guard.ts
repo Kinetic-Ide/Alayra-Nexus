@@ -16,27 +16,49 @@
 
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { verifyAdminPassword } from '../../middleware/auth.middleware';
+import { roleAtLeast, ROLE_LABELS, type AdminRole } from '../../lib/roles';
 
 /**
  * Every admin route carries a guard. Kept in one place so a new sub-router cannot
  * accidentally register an unauthenticated endpoint under /admin.
  *
- * `adminGuard` authenticates the caller (any role) — use it for reads (GET) and for the
- * few actions any signed-in caller may take on their own session (logout).
- * `adminOwnerGuard` additionally requires the owner role — use it for every mutation.
+ * Three guards, matching the three roles (Phase 7.13a):
+ *
+ *   adminGuard      — any authenticated caller. Reads, and the few actions anyone may take on
+ *                     their own session or account (logout, my profile, my second factor).
+ *   adminWriteGuard — owner or admin. The default for a mutation: this is the gateway's day-to-day
+ *                     operation, which is exactly what delegating to an admin is for.
+ *   adminOwnerGuard — owner only. The short list of things that decide who the gateway belongs to:
+ *                     people, invites, single sign-on, compliance/retention, the master API key,
+ *                     and the reset-wipe. An admin who could do these could remove the owner.
+ *
+ * The server is the real boundary. The dashboard also hides what a caller cannot do, but that is
+ * cosmetic — every rule here is enforced here.
  */
 export const adminGuard = { preHandler: [verifyAdminPassword] };
 
 /**
- * Role gate (Phase 6.5). Runs after verifyAdminPassword, which has attached `adminRole`,
- * so a viewer (read-only) credential is refused with a clear 403 on any mutating route.
- * The server is the real boundary here — the dashboard also hides these actions, but that
- * is only cosmetic.
+ * Refuse a caller who lacks the required authority, naming what they have and what is needed.
+ *
+ * The message matters: "403" on a button a person can see is a dead end, while "this needs owner
+ * access, yours is admin" tells them exactly who to ask.
  */
-export async function requireOwner(request: FastifyRequest, reply: FastifyReply) {
-  if (request.adminRole !== 'owner') {
-    return reply.code(403).send({ error: 'This action requires owner access. Your credential is read-only.' });
-  }
+function requireRole(minimum: AdminRole) {
+  return async function guard(request: FastifyRequest, reply: FastifyReply) {
+    const role = (request.adminRole ?? 'viewer') as AdminRole;
+    if (roleAtLeast(role, minimum)) return;
+    return reply.code(403).send({
+      error: `This action needs ${ROLE_LABELS[minimum].label.toLowerCase()} access. Your account is ${ROLE_LABELS[role].label.toLowerCase()}.`,
+      requiredRole: minimum,
+      role,
+    });
+  };
 }
 
+/** Kept for the one thing it still names: owner-only. Exported because tests drive it directly. */
+export const requireOwner = requireRole('owner');
+/** Owner or admin — anything but a viewer. */
+export const requireWrite = requireRole('admin');
+
 export const adminOwnerGuard = { preHandler: [verifyAdminPassword, requireOwner] };
+export const adminWriteGuard = { preHandler: [verifyAdminPassword, requireWrite] };

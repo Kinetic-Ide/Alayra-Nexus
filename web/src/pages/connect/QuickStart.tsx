@@ -1,18 +1,22 @@
 import { useState } from 'preact/hooks';
 import { Card, Tabs, CodeBlock, type TabItem } from '../../ui';
 
-// Copy-paste quick-starts, filled with this gateway's own base URL and key so a developer can be
-// making calls in seconds. Same three ways the gateway is meant to be used: raw HTTP, the OpenAI
-// SDK (point its base URL here), and the Anthropic SDK.
+// Copy-paste quick-starts, filled with this gateway's own base URL so a developer can be making
+// calls in seconds. Same three ways the gateway is meant to be used: raw HTTP, the OpenAI SDK
+// (point its base URL here), and the Anthropic SDK.
+//
+// The key is a placeholder as of Phase 7.13a — it is stored as a hash and shown only once, at
+// creation, so there is nothing for the gateway to interpolate here. A snippet that silently
+// pasted a real credential into a shell history was never a good idea either.
 const TABS: TabItem[] = [
   { id: 'curl',      label: 'cURL' },
   { id: 'openai',    label: 'OpenAI SDK' },
   { id: 'anthropic', label: 'Anthropic SDK' },
 ];
 
-export function QuickStart({ baseUrl, apiKey }: { baseUrl: string; apiKey: string }) {
+export function QuickStart({ baseUrl }: { baseUrl: string }) {
   const [tab, setTab] = useState('curl');
-  const key = apiKey || 'YOUR_NEXUS_KEY';
+  const key = 'YOUR_NEXUS_KEY';
 
   const snippets: Record<string, { lang: string; code: string }> = {
     curl: {

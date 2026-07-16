@@ -21,7 +21,7 @@
 // stays thin. No token verification lives here: that is delegated wholesale to `jose`.
 
 import { randomBytes, createHash } from 'crypto';
-import type { AdminRole } from '../services/adminAuth.service';
+import type { AdminRole } from './roles';
 
 /** A high-entropy opaque value: the `state` CSRF token and the `nonce` replay guard. */
 export function randomToken(bytes = 32): string {

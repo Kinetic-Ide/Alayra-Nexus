@@ -3,6 +3,7 @@ import { PageHeader, Card, CopyField, Spinner, Button, Table, Badge, type Column
 import { useApi } from '../hooks/useApi';
 import type { GatewayConfig } from '../api';
 import { QuickStart } from './connect/QuickStart';
+import { ApiKeyPanel } from './connect/ApiKeyPanel';
 import s from './pages.module.css';
 
 interface Endpoint { method: string; path: string; purpose: string; }
@@ -46,13 +47,22 @@ export function Connect() {
     );
   }
 
-  const baseUrl = data.baseUrl.replace(/\/$/, '');
-  const apiKey = data.nexusApiKey ?? '';
+  // Two different URLs, named separately — conflating them is exactly what broke this page.
+  //
+  // `GET /admin/config` returns the /v1 API base (lib/baseUrl.ts: `${origin}/v1`), which is what you
+  // paste into an OpenAI client. But every path below is written from the ROOT
+  // ("/v1/chat/completions"), so joining them onto the same value produced
+  // `…/v1/v1/chat/completions` — a 404 — on the one page whose entire job is "copy this and it
+  // works". Wrong since the P7.9 cutover; found by live-testing P7.13a against a real gateway. The
+  // unit test never caught it because its fixture passes a base URL with no /v1, which no real
+  // deployment ever sends.
+  const apiBaseUrl = data.baseUrl.replace(/\/+$/, '');          // …/v1 — for an SDK's base_url
+  const origin     = apiBaseUrl.replace(/\/v1$/, '');            // …    — for paths that carry their own /v1
 
   const endpointCols: Column<Endpoint>[] = [
     { key: 'purpose', label: 'Purpose' },
     { key: 'method',  label: 'Method', render: (e) => <Badge tone="gray">{e.method}</Badge> },
-    { key: 'path',    label: 'Path',   render: (e) => <code class={s.epPath}>{baseUrl}{e.path}</code> },
+    { key: 'path',    label: 'Path',   render: (e) => <code class={s.epPath}>{origin}{e.path}</code> },
   ];
 
   return (
@@ -62,16 +72,16 @@ export function Connect() {
       <div class={`${s.grid} ${s.cols1}`}>
         <Card heading="Connection">
           <div class={s.connFields}>
-            <CopyField label="Base URL" value={baseUrl} />
-            <CopyField label="API key" value={apiKey || 'Not set — generate one in Settings'} />
+            <CopyField label="Base URL" value={apiBaseUrl} />
           </div>
+          <ApiKeyPanel apiKeySet={data.apiKeySet} apiKeyMasked={data.apiKeyMasked} onRotated={reload} />
           <div class={s.rulesNote}>
             <ShieldAlert size={13} /> Treat the API key like a password — anyone with it can spend against your providers.
           </div>
         </Card>
       </div>
 
-      <div class={s.section}><QuickStart baseUrl={baseUrl} apiKey={apiKey} /></div>
+      <div class={s.section}><QuickStart baseUrl={origin} /></div>
 
       <div class={s.section}>
         <Card heading="Endpoints">

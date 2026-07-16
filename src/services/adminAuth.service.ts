@@ -22,6 +22,9 @@ import { safeEqual }         from '../lib/timingSafe';
 import { verifyTotp, generateTotpSecret, otpauthUri } from '../lib/totp';
 import { notify } from './notifications.service';
 import { adminLockoutMessage } from '../lib/notify';
+import { asRole, type AdminRole } from '../lib/roles';
+import { verifyPassword } from '../lib/password';
+import { isUnclaimed } from './adminUsers.service';
 
 // ── Admin authentication (Phase 6) ────────────────────────────────────────────
 //
@@ -33,6 +36,18 @@ import { adminLockoutMessage } from '../lib/notify';
 // Enforcement is conditional and additive. Until a TOTP secret is *confirmed*, the
 // password still works as a bearer token, exactly as it always has, so upgrading the
 // gateway changes nothing. Confirming a second factor is what closes that door.
+//
+// ── Accounts (Phase 7.13a) ────────────────────────────────────────────────────
+//
+// The same argument, one level up. A second factor cannot be made a *person's* while there is only
+// one shared password, and an audit trail cannot name anyone. So sign-in is now email + password
+// against an account, and ADMIN_PASSWORD changes job: it claims the first owner account and
+// authorises the reset-wipe, and it is refused as a sign-in the moment an owner exists — because a
+// shared env secret that still logged in would put the trail straight back to saying "password".
+//
+// Nothing changes at upgrade. Until the gateway is claimed, every path below behaves exactly as it
+// did in Phase 6: the password signs in, the singleton second factor applies. The change happens
+// when the operator claims, not when the code ships.
 
 const SESSION_PREFIX  = 'nexus:adminsession:';
 const LOCKOUT_PREFIX  = 'nexus:adminlock:';
@@ -66,7 +81,13 @@ export interface TotpState {
   pending: boolean;
 }
 
-export async function getTotpState(): Promise<TotpState> {
+/**
+ * The pre-accounts second factor: one secret for the whole gateway, shared by everyone who knew the
+ * password. Read in exactly two places now — the claim flow, which copies it onto the first owner,
+ * and the pre-claim sign-in path, which must keep behaving as it did in Phase 6. Every other caller
+ * uses the per-user functions below.
+ */
+export async function getLegacyTotpState(): Promise<TotpState> {
   const row = await prisma.adminAuth.findUnique({ where: { id: SINGLETON } });
   return {
     enabled: !!row?.totpSecret && !!row.confirmedAt,
@@ -74,9 +95,25 @@ export async function getTotpState(): Promise<TotpState> {
   };
 }
 
-/** True once a second factor is confirmed — the point at which the password alone stops working. */
-export async function isTwoFactorEnabled(): Promise<boolean> {
-  return (await getTotpState()).enabled;
+/**
+ * True when the raw ADMIN_PASSWORD is still accepted as a bearer token.
+ *
+ * Two doors have to be open for that, and both close permanently once shut: the gateway must be
+ * unclaimed (no account exists to sign in as), and no legacy second factor may be confirmed (Phase
+ * 6's rule — a password that kept working as a bearer would bypass the factor it was meant to add).
+ */
+export async function isPasswordBearerAllowed(): Promise<boolean> {
+  if (!(await isUnclaimed())) return false;
+  return !(await getLegacyTotpState()).enabled;
+}
+
+/** A person's second factor. */
+export async function getTotpState(userId: string): Promise<TotpState> {
+  const row = await prisma.adminUser.findUnique({ where: { id: userId } });
+  return {
+    enabled: !!row?.totpSecret && !!row.totpConfirmedAt,
+    pending: !!row?.totpSecret && !row.totpConfirmedAt,
+  };
 }
 
 /**
@@ -85,13 +122,12 @@ export async function isTwoFactorEnabled(): Promise<boolean> {
  * how the gateway authenticates until `confirmTotp` succeeds, so a half-finished
  * enrolment can never lock the operator out.
  */
-export async function beginTotpEnrolment(account = 'admin'): Promise<{ secret: string; otpauthUri: string }> {
+export async function beginTotpEnrolment(userId: string, account = 'admin'): Promise<{ secret: string; otpauthUri: string }> {
   const secret = generateTotpSecret();
   const enc    = encrypt(secret);
-  await prisma.adminAuth.upsert({
-    where:  { id: SINGLETON },
-    create: { id: SINGLETON, totpSecret: enc, confirmedAt: null },
-    update: { totpSecret: enc, confirmedAt: null },
+  await prisma.adminUser.update({
+    where: { id: userId },
+    data:  { totpSecret: enc, totpConfirmedAt: null },
   });
   return { secret, otpauthUri: otpauthUri(secret, account) };
 }
@@ -101,34 +137,34 @@ export async function beginTotpEnrolment(account = 'admin'): Promise<{ secret: s
  * and a fresh set of single-use recovery codes is issued — returned once, stored
  * only as hashes.
  */
-export async function confirmTotp(code: string): Promise<{ ok: boolean; recoveryCodes?: string[] }> {
-  const row = await prisma.adminAuth.findUnique({ where: { id: SINGLETON } });
+export async function confirmTotp(userId: string, code: string): Promise<{ ok: boolean; recoveryCodes?: string[] }> {
+  const row = await prisma.adminUser.findUnique({ where: { id: userId } });
   if (!row?.totpSecret) return { ok: false };
   if (!verifyTotp(code, decrypt(row.totpSecret))) return { ok: false };
 
-  await prisma.adminAuth.update({ where: { id: SINGLETON }, data: { confirmedAt: new Date() } });
-  const recoveryCodes = await regenerateRecoveryCodes();
+  await prisma.adminUser.update({ where: { id: userId }, data: { totpConfirmedAt: new Date() } });
+  const recoveryCodes = await regenerateRecoveryCodes(userId);
   return { ok: true, recoveryCodes };
 }
 
-/** Check a code against the confirmed secret without changing any state. */
-export async function verifyTotpCode(code: string): Promise<boolean> {
-  const row = await prisma.adminAuth.findUnique({ where: { id: SINGLETON } });
-  if (!row?.totpSecret || !row.confirmedAt) return false;
+/** Check a code against a person's confirmed secret without changing any state. */
+export async function verifyTotpCode(userId: string, code: string): Promise<boolean> {
+  const row = await prisma.adminUser.findUnique({ where: { id: userId } });
+  if (!row?.totpSecret || !row.totpConfirmedAt) return false;
   return verifyTotp(code, decrypt(row.totpSecret));
 }
 
-/** Turn the second factor off. Requires a currently-valid code or recovery code. */
-export async function disableTotp(code: string): Promise<boolean> {
-  const row = await prisma.adminAuth.findUnique({ where: { id: SINGLETON } });
-  if (!row?.totpSecret || !row.confirmedAt) return false;
+/** Turn a person's second factor off. Requires a currently-valid code or recovery code. */
+export async function disableTotp(userId: string, code: string): Promise<boolean> {
+  const row = await prisma.adminUser.findUnique({ where: { id: userId } });
+  if (!row?.totpSecret || !row.totpConfirmedAt) return false;
 
   const bySecret   = verifyTotp(code, decrypt(row.totpSecret));
-  const byRecovery = bySecret ? false : await consumeRecoveryCode(code);
+  const byRecovery = bySecret ? false : await consumeRecoveryCode(userId, code);
   if (!bySecret && !byRecovery) return false;
 
-  await prisma.adminAuth.update({ where: { id: SINGLETON }, data: { totpSecret: null, confirmedAt: null } });
-  await prisma.adminRecoveryCode.deleteMany({});
+  await prisma.adminUser.update({ where: { id: userId }, data: { totpSecret: null, totpConfirmedAt: null } });
+  await prisma.adminRecoveryCode.deleteMany({ where: { userId } });
   return true;
 }
 
@@ -136,8 +172,8 @@ export async function disableTotp(code: string): Promise<boolean> {
 
 const RECOVERY_CODE_COUNT = 10;
 
-/** Ten fresh codes. Any previously-issued code stops working. Returned once. */
-export async function regenerateRecoveryCodes(): Promise<string[]> {
+/** Ten fresh codes for one person. Any previously-issued code of theirs stops working. Returned once. */
+export async function regenerateRecoveryCodes(userId: string): Promise<string[]> {
   const codes = Array.from({ length: RECOVERY_CODE_COUNT }, () => {
     // 8 bytes = 64 bits of entropy, formatted xxxx-xxxx-xxxx-xxxx. Recovery codes are stored only as
     // fast (sha256) hashes, so their strength has to come from length: 64 bits is infeasible to
@@ -145,28 +181,32 @@ export async function regenerateRecoveryCodes(): Promise<string[]> {
     const hex = randomBytes(8).toString('hex'); // 16 hex chars
     return `${hex.slice(0, 4)}-${hex.slice(4, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}`;
   });
-  await prisma.adminRecoveryCode.deleteMany({});
+  await prisma.adminRecoveryCode.deleteMany({ where: { userId } });
   await prisma.adminRecoveryCode.createMany({
-    data: codes.map((c) => ({ codeHash: sha256(c) })),
+    data: codes.map((c) => ({ codeHash: sha256(c), userId })),
   });
   return codes;
 }
 
 /**
- * Spend a recovery code. Single use: the row is stamped rather than deleted, so an
+ * Spend one of a person's recovery codes. Single use: the row is stamped rather than deleted, so an
  * operator can see that one was used. Returns false for an unknown or spent code.
+ *
+ * The code must belong to the user presenting it. The lookup is by hash (that is what is indexed),
+ * so ownership is checked on the row that comes back — otherwise one person's code would unlock
+ * anyone's account, which is precisely the sharing this phase set out to end.
  */
-export async function consumeRecoveryCode(code: string): Promise<boolean> {
+export async function consumeRecoveryCode(userId: string, code: string): Promise<boolean> {
   const normalized = (code ?? '').trim().toLowerCase();
   if (!normalized) return false;
   const row = await prisma.adminRecoveryCode.findUnique({ where: { codeHash: sha256(normalized) } });
-  if (!row || row.usedAt) return false;
+  if (!row || row.usedAt || row.userId !== userId) return false;
   await prisma.adminRecoveryCode.update({ where: { id: row.id }, data: { usedAt: new Date() } });
   return true;
 }
 
-export async function countUnusedRecoveryCodes(): Promise<number> {
-  return prisma.adminRecoveryCode.count({ where: { usedAt: null } });
+export async function countUnusedRecoveryCodes(userId: string): Promise<number> {
+  return prisma.adminRecoveryCode.count({ where: { userId, usedAt: null } });
 }
 
 // ── Lockout ───────────────────────────────────────────────────────────────────
@@ -207,38 +247,74 @@ export async function clearFailedAttempts(source: string): Promise<void> {
   await redis.del(ATTEMPT_PREFIX + sha256(source), LOCKOUT_PREFIX + sha256(source));
 }
 
-// ── Roles (Phase 6.5 RBAC) ──────────────────────────────────────────────────────
-// Two levels: "owner" holds full control; "viewer" is read-only (GET routes only, every
-// mutation refused). The raw admin password and every dashboard login are always owner;
-// a viewer credential can only be a viewer-scoped admin API token. Anything unrecognised
-// resolves to owner, so a session or token minted before 6.5 keeps the access it had.
+// ── Sessions ──────────────────────────────────────────────────────────────────
+//
+// A session names its subject, not its authority. Two shapes are stored:
+//
+//   {"v":1,"uid":"…"}      an account. Role and status are read from the account on every request.
+//   {"v":1,"role":"admin"} no account behind it — an admin API token exchanged for a session.
+//
+// Baking the role into the session at sign-in would be faster and wrong: demoting someone would
+// leave their old authority live for up to twelve hours, and suspending them would not lock them
+// out until their session happened to expire. Reading the account per request costs one indexed
+// primary-key lookup on routes that are nowhere near the proxy hot path, and buys the property an
+// operator actually expects — remove someone, and they are out on their very next request.
 
-export type AdminRole = 'owner' | 'viewer';
+interface SessionValue { v: 1; uid?: string; role?: AdminRole }
 
-export function asRole(v: string | null | undefined): AdminRole {
-  return v === 'viewer' ? 'viewer' : 'owner';
+/** Who is making this request. `userId` is null for a token-minted or pre-accounts session. */
+export interface SessionIdentity {
+  userId: string | null;
+  role: AdminRole;
+  name: string | null;
 }
 
-// ── Sessions ──────────────────────────────────────────────────────────────────
+export type SessionSubject = { userId: string } | { role: AdminRole };
 
-export async function createSession(role: AdminRole = 'owner'): Promise<{ token: string; expiresIn: number }> {
+export async function createSession(subject: SessionSubject = { role: 'owner' }): Promise<{ token: string; expiresIn: number }> {
   const token = randomBytes(32).toString('hex');
-  // The session value is now the role (was a bare '1'); getSessionRole reads it back, and an
-  // older '1'-valued session resolves to owner via asRole, so upgrades keep working.
-  await redis.set(SESSION_PREFIX + sha256(token), role, 'EX', SESSION_TTL_SECONDS);
+  const value: SessionValue = 'userId' in subject ? { v: 1, uid: subject.userId } : { v: 1, role: subject.role };
+  await redis.set(SESSION_PREFIX + sha256(token), JSON.stringify(value), 'EX', SESSION_TTL_SECONDS);
   return { token, expiresIn: SESSION_TTL_SECONDS };
 }
 
-/** The role a live session carries, or null when it is absent/expired. Stored by hash, so a
- *  Redis dump cannot be replayed as a session. */
-export async function getSessionRole(token: string): Promise<AdminRole | null> {
+/**
+ * Resolve a live session to who is behind it, or null when it is absent, expired, or belongs to an
+ * account that has since been removed or suspended. Stored by hash, so a Redis dump cannot be
+ * replayed as a session.
+ *
+ * A session minted before 7.13a holds a bare role string ('1', 'owner', 'viewer') rather than JSON.
+ * Those keep working, unattributed, until they expire — an upgrade must not sign everyone out.
+ */
+export async function resolveSession(token: string): Promise<SessionIdentity | null> {
   if (!token) return null;
-  const v = await redis.get(SESSION_PREFIX + sha256(token));
-  return v === null ? null : asRole(v);
+  const raw = await redis.get(SESSION_PREFIX + sha256(token));
+  if (raw === null) return null;
+
+  let parsed: SessionValue | null = null;
+  try {
+    const v = JSON.parse(raw) as unknown;
+    if (v && typeof v === 'object') parsed = v as SessionValue;
+  } catch {
+    parsed = null; // a pre-7.13a session: a bare role string, not JSON
+  }
+
+  if (!parsed?.uid) {
+    return { userId: null, role: asRole(parsed?.role ?? raw), name: null };
+  }
+
+  const user = await prisma.adminUser.findUnique({
+    where:  { id: parsed.uid },
+    select: { id: true, name: true, role: true, status: true },
+  });
+  // The account is gone or suspended: the session dies with it, right now, rather than lingering
+  // until its TTL runs out.
+  if (!user || user.status !== 'active') return null;
+  return { userId: user.id, role: asRole(user.role), name: user.name };
 }
 
 export async function isValidSession(token: string): Promise<boolean> {
-  return (await getSessionRole(token)) !== null;
+  return (await resolveSession(token)) !== null;
 }
 
 export async function destroySession(token: string): Promise<void> {
@@ -248,9 +324,10 @@ export async function destroySession(token: string): Promise<void> {
 // ── Login ─────────────────────────────────────────────────────────────────────
 
 export type LoginResult =
-  | { ok: true; token: string; expiresIn: number; role: AdminRole }
+  | { ok: true; token: string; expiresIn: number; role: AdminRole; userId: string | null; name: string | null }
   | { ok: false; reason: 'locked_out'; retryAfter: number }
   | { ok: false; reason: 'totp_required' }
+  | { ok: false; reason: 'suspended' }
   | { ok: false; reason: 'invalid' };
 
 /**
@@ -274,7 +351,11 @@ async function alertAdminLockout(source: string): Promise<void> {
   await notify(adminLockoutMessage(source));
 }
 
-export async function login(password: string, code: string | undefined, source: string): Promise<LoginResult> {
+export async function login(
+  input: { email?: string; password: string; code?: string },
+  source: string,
+): Promise<LoginResult> {
+  const { password, code } = input;
   const retryAfter = await lockoutRemaining(source);
   if (retryAfter > 0) return { ok: false, reason: 'locked_out', retryAfter };
 
@@ -286,44 +367,91 @@ export async function login(password: string, code: string | undefined, source: 
     if (r.lockedOut) void alertAdminLockout(source).catch(() => {});
     return r;
   };
+  const failed = async (reason: 'invalid' | 'totp_required' = 'invalid'): Promise<LoginResult> => {
+    const { lockedOut, retryAfter: ra } = await fail();
+    return lockedOut ? { ok: false, reason: 'locked_out', retryAfter: ra } : { ok: false, reason };
+  };
 
-  // An admin API token may be presented in place of the password, so a viewer (or an
-  // owner) can obtain a dashboard session without the master password. Tokens already
-  // bypass the second factor by design — they are for callers that cannot present one —
-  // so this path mints a session at the token's own role and does not consult TOTP.
+  // An admin API token may be presented in place of the password, so a script (or a person holding
+  // a viewer token) can obtain a dashboard session without an account. Tokens already bypass the
+  // second factor by design — they are for callers that cannot present one — so this path mints a
+  // session at the token's own role and does not consult TOTP. No account is behind it, which is
+  // why the session carries a role rather than a uid.
   const tokenRole = await verifyAdminApiToken(password);
   if (tokenRole) {
     await clearFailedAttempts(source);
-    const { token, expiresIn } = await createSession(tokenRole);
-    return { ok: true, token, expiresIn, role: tokenRole };
+    const { token, expiresIn } = await createSession({ role: tokenRole });
+    return { ok: true, token, expiresIn, role: tokenRole, userId: null, name: null };
   }
 
-  const expected = process.env.ADMIN_PASSWORD;
-  if (!safeEqual(password, expected)) {
-    const { lockedOut, retryAfter: ra } = await fail();
-    return lockedOut ? { ok: false, reason: 'locked_out', retryAfter: ra } : { ok: false, reason: 'invalid' };
+  // ── Before the gateway is claimed: Phase 6's path, unchanged ──
+  // The master password signs in as owner (subject to the singleton second factor). This is what
+  // makes the upgrade a non-event: an operator who has not yet claimed signs in exactly as before,
+  // and is then shown the claim screen.
+  if (await isUnclaimed()) {
+    if (!safeEqual(password, process.env.ADMIN_PASSWORD)) return failed();
+
+    if ((await getLegacyTotpState()).enabled) {
+      if (!code) return failed('totp_required');
+      const row = await prisma.adminAuth.findUnique({ where: { id: SINGLETON } });
+      const bySecret = !!row?.totpSecret && verifyTotp(code, decrypt(row.totpSecret));
+      // A legacy recovery code has no owner yet, so it is matched by hash alone — the per-user
+      // check below cannot apply to codes minted before anyone existed to own them.
+      const byRecovery = bySecret ? false : await consumeLegacyRecoveryCode(code);
+      if (!bySecret && !byRecovery) return failed();
+    }
+
+    await clearFailedAttempts(source);
+    const { token, expiresIn } = await createSession({ role: 'owner' });
+    return { ok: true, token, expiresIn, role: 'owner', userId: null, name: null };
   }
 
-  const { enabled } = await getTotpState();
-  if (enabled) {
-    if (!code) {
-      const { lockedOut, retryAfter: ra } = await fail();
-      return lockedOut
-        ? { ok: false, reason: 'locked_out', retryAfter: ra }
-        : { ok: false, reason: 'totp_required' };
-    }
-    const row = await prisma.adminAuth.findUnique({ where: { id: SINGLETON } });
-    const bySecret = !!row?.totpSecret && verifyTotp(code, decrypt(row.totpSecret));
-    const byRecovery = bySecret ? false : await consumeRecoveryCode(code);
-    if (!bySecret && !byRecovery) {
-      const { lockedOut, retryAfter: ra } = await fail();
-      return lockedOut ? { ok: false, reason: 'locked_out', retryAfter: ra } : { ok: false, reason: 'invalid' };
-    }
+  // ── Once claimed: an account, or nothing ──
+  // The master password is deliberately not checked here. It is refused like any other wrong
+  // password — including the timing, since it never reaches a comparison the reply could betray.
+  const user = input.email ? await prisma.adminUser.findUnique({ where: { email: input.email.trim().toLowerCase() } }) : null;
+
+  // The password is verified even when there is no such account, and even when the account is an
+  // SSO one with no password (verifyPassword on a null digest is a guaranteed false). Skipping the
+  // work would make sign-in an oracle: a fast "no" would mean the address is unknown, a slow one
+  // would mean it exists — which is how you enumerate the people who administer a gateway.
+  const passwordOk = await verifyPassword(password, user?.passwordHash ?? null);
+  if (!user || !passwordOk) return failed();
+  if (user.status !== 'active') {
+    // Counted as a failure like any other: a suspended account's password is still a live secret,
+    // and an attacker holding it must not get an unthrottled way to learn the suspension is the
+    // only thing stopping them.
+    await fail();
+    return { ok: false, reason: 'suspended' };
+  }
+
+  if (user.totpSecret && user.totpConfirmedAt) {
+    if (!code) return failed('totp_required');
+    const bySecret = verifyTotp(code, decrypt(user.totpSecret));
+    const byRecovery = bySecret ? false : await consumeRecoveryCode(user.id, code);
+    if (!bySecret && !byRecovery) return failed();
   }
 
   await clearFailedAttempts(source);
-  const { token, expiresIn } = await createSession('owner');
-  return { ok: true, token, expiresIn, role: 'owner' };
+  // Fire and forget: a last-seen timestamp must never fail a sign-in.
+  void prisma.adminUser.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
+  const { token, expiresIn } = await createSession({ userId: user.id });
+  return { ok: true, token, expiresIn, role: asRole(user.role), userId: user.id, name: user.name };
+}
+
+/**
+ * Spend a recovery code that predates accounts (userId is null), for the pre-claim sign-in path.
+ * Kept separate from `consumeRecoveryCode` so that the per-user ownership check there stays
+ * unconditional — a function that skips the check "when userId is null" would be one refactor away
+ * from letting anyone's code unlock anyone's account.
+ */
+async function consumeLegacyRecoveryCode(code: string): Promise<boolean> {
+  const normalized = (code ?? '').trim().toLowerCase();
+  if (!normalized) return false;
+  const row = await prisma.adminRecoveryCode.findUnique({ where: { codeHash: sha256(normalized) } });
+  if (!row || row.usedAt || row.userId !== null) return false;
+  await prisma.adminRecoveryCode.update({ where: { id: row.id }, data: { usedAt: new Date() } });
+  return true;
 }
 
 // ── Admin API tokens ──────────────────────────────────────────────────────────
@@ -332,7 +460,11 @@ export async function login(password: string, code: string | undefined, source: 
 
 const TOKEN_PREFIX = 'nxa_';
 
-export async function createAdminApiToken(name: string, role: AdminRole = 'owner'): Promise<{ id: string; name: string; token: string; maskedKey: string; role: AdminRole }> {
+export async function createAdminApiToken(
+  name: string,
+  role: AdminRole = 'owner',
+  createdById: string | null = null,
+): Promise<{ id: string; name: string; token: string; maskedKey: string; role: AdminRole }> {
   // The route validates with Zod, but this is an exported service function: enforce the same
   // bound here so a direct caller can never persist a blank or oversized name.
   const normalizedName = name.trim();
@@ -342,7 +474,10 @@ export async function createAdminApiToken(name: string, role: AdminRole = 'owner
   const token = TOKEN_PREFIX + randomBytes(24).toString('hex');
   const maskedKey = `${token.slice(0, 8)}••••${token.slice(-4)}`;
   const row = await prisma.adminApiToken.create({
-    data: { name: normalizedName, tokenHash: sha256(token), maskedKey, role },
+    // `createdById` (7.13a) is what makes offboarding real: removing a person revokes the tokens
+    // they minted. Null when a token is created by a pre-accounts or token-minted session — there
+    // is genuinely nobody to attribute it to, and inventing an owner would be worse than admitting it.
+    data: { name: normalizedName, tokenHash: sha256(token), maskedKey, role, createdById },
   });
   return { id: row.id, name: row.name, token, maskedKey, role: asRole(row.role) };
 }
@@ -362,11 +497,17 @@ export async function verifyAdminApiToken(token: string): Promise<AdminRole | nu
 }
 
 export async function listAdminApiTokens() {
-  return prisma.adminApiToken.findMany({
+  const rows = await prisma.adminApiToken.findMany({
     where:   { revokedAt: null },
     orderBy: { createdAt: 'desc' },
-    select:  { id: true, name: true, maskedKey: true, role: true, lastUsedAt: true, createdAt: true },
+    select:  {
+      id: true, name: true, maskedKey: true, role: true, lastUsedAt: true, createdAt: true,
+      createdBy: { select: { name: true } },
+    },
   });
+  // Flattened to a name (or null) rather than a nested object: the dashboard wants to say who made
+  // a token, and a token with nobody behind it should read as exactly that.
+  return rows.map(({ createdBy, ...t }) => ({ ...t, createdBy: createdBy?.name ?? null }));
 }
 
 export async function revokeAdminApiToken(id: string): Promise<void> {

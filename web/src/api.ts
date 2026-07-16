@@ -3,6 +3,16 @@
 // gone. This is the seam every page's data-loading is built on in later phases.
 
 const TOKEN_KEY = 'nx_token';
+const IDENTITY_KEY = 'nx_identity';
+
+export type AdminRole = 'owner' | 'admin' | 'viewer';
+
+/** Who is signed in. `userId` is null for a session minted from an admin API token. */
+export interface Identity {
+  role: AdminRole;
+  userId: string | null;
+  name: string | null;
+}
 
 export function getToken(): string {
   try { return sessionStorage.getItem(TOKEN_KEY) ?? ''; } catch { return ''; }
@@ -12,9 +22,31 @@ export function setToken(token: string): void {
   try { sessionStorage.setItem(TOKEN_KEY, token); } catch { /* private mode */ }
 }
 
+/**
+ * The signed-in identity (Phase 7.13a). Until now the dashboard threw away the role the gateway
+ * returned at sign-in, which is why it could never hide what a viewer cannot do.
+ *
+ * Stored for presentation ONLY. Nothing here is a permission: every rule is enforced by the guards
+ * on the server, which read the role from the account on each request. A user who edited this in
+ * devtools would see more buttons and get a 403 on every one of them.
+ */
+export function getIdentity(): Identity | null {
+  try {
+    const raw = sessionStorage.getItem(IDENTITY_KEY);
+    return raw ? (JSON.parse(raw) as Identity) : null;
+  } catch { return null; }
+}
+
+export function setIdentity(identity: Identity): void {
+  try { sessionStorage.setItem(IDENTITY_KEY, JSON.stringify(identity)); } catch { /* private mode */ }
+}
+
 /** Drop the session token — on sign-out, or when the gateway rejects it as expired. */
 export function clearToken(): void {
-  try { sessionStorage.removeItem(TOKEN_KEY); } catch { /* private mode */ }
+  try {
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(IDENTITY_KEY);
+  } catch { /* private mode */ }
 }
 
 export class ApiError extends Error {
@@ -51,28 +83,121 @@ export interface LoginOutcome {
   error?:        string;
 }
 
+/** Store what the gateway said about who just signed in. */
+function rememberIdentity(b: Record<string, unknown>): void {
+  const user = b.user as { id?: string; name?: string } | null | undefined;
+  setIdentity({
+    role:   (b.role as AdminRole) ?? 'viewer',
+    userId: user?.id ?? null,
+    name:   user?.name ?? null,
+  });
+}
+
 /**
- * Exchange the admin password (and a TOTP or recovery code, once a second factor is enrolled) for a
- * session token, stored for every subsequent request. Kept off the generic `api()` path on purpose: a
- * failed sign-in must not trip the global 401 → logout handling (there is nothing to log out of yet),
- * and it needs the parsed body to tell "wrong password" from "code required".
+ * Exchange an email and password (and a TOTP or recovery code, once a second factor is enrolled) for
+ * a session token, stored for every subsequent request. Kept off the generic `api()` path on purpose:
+ * a failed sign-in must not trip the global 401 → logout handling (there is nothing to log out of
+ * yet), and it needs the parsed body to tell "wrong password" from "code required".
+ *
+ * `email` is optional because a gateway that has not been claimed yet signs in exactly as it did
+ * before accounts existed: the master password alone.
  */
-export async function login(password: string, code?: string): Promise<LoginOutcome> {
+export async function login(password: string, code?: string, email?: string): Promise<LoginOutcome> {
   let res: Response;
   try {
     res = await fetch('/admin/login', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(code ? { password, code } : { password }),
+      body:    JSON.stringify({ password, ...(code ? { code } : {}), ...(email ? { email } : {}) }),
     });
   } catch {
     return { ok: false, error: 'Could not reach the gateway.' };
   }
   const b = await res.json().catch(() => ({} as Record<string, unknown>));
-  if (res.ok && typeof b.token === 'string') { setToken(b.token); return { ok: true }; }
+  if (res.ok && typeof b.token === 'string') {
+    setToken(b.token);
+    rememberIdentity(b);
+    return { ok: true };
+  }
   if (res.status === 429)  return { ok: false, lockedOut: true, retryAfter: Number(b.retryAfter) || undefined, error: String(b.error ?? 'Too many attempts.') };
   if (b.totpRequired)      return { ok: false, totpRequired: true, error: String(b.error ?? 'Authenticator code required.') };
   return { ok: false, error: String(b.error ?? 'Invalid credentials.') };
+}
+
+// ── First run (Phase 7.13a) ───────────────────────────────────────────────────
+
+export interface ClaimStatus {
+  unclaimed: boolean;
+  carriesExistingTwoFactor: boolean;
+}
+
+/**
+ * Has anyone claimed this gateway? Read before the sign-in form renders, and deliberately off the
+ * `api()` path: there is no session to lose, and a network failure here must not look like a logout.
+ * A gateway we cannot ask is assumed CLAIMED — showing a stranger a "create the owner account"
+ * screen because a fetch failed would be the worst possible way to be wrong.
+ */
+export async function fetchClaimStatus(): Promise<ClaimStatus> {
+  try {
+    const res = await fetch('/admin/setup/status');
+    if (!res.ok) return { unclaimed: false, carriesExistingTwoFactor: false };
+    return (await res.json()) as ClaimStatus;
+  } catch {
+    return { unclaimed: false, carriesExistingTwoFactor: false };
+  }
+}
+
+export interface ClaimOutcome {
+  ok: boolean;
+  recoveryKey?: string;
+  twoFactorCarriedOver?: boolean;
+  error?: string;
+}
+
+/** Create the first owner account, proving control with the server's ADMIN_PASSWORD. */
+export async function claimGateway(input: {
+  masterPassword: string; name: string; email: string; password: string;
+}): Promise<ClaimOutcome> {
+  let res: Response;
+  try {
+    res = await fetch('/admin/setup/claim', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(input),
+    });
+  } catch {
+    return { ok: false, error: 'Could not reach the gateway.' };
+  }
+  const b = await res.json().catch(() => ({} as Record<string, unknown>));
+  if (res.ok && typeof b.token === 'string') {
+    setToken(b.token);
+    rememberIdentity({ role: b.role, user: b.user });
+    return {
+      ok: true,
+      recoveryKey: String(b.recoveryKey ?? ''),
+      twoFactorCarriedOver: !!b.twoFactorCarriedOver,
+    };
+  }
+  return { ok: false, error: String(b.error ?? 'Could not create your account.') };
+}
+
+/** Reset a forgotten password with a recovery key. Returns the replacement key, shown once. */
+export async function recoverPassword(input: {
+  email: string; recoveryKey: string; newPassword: string;
+}): Promise<{ ok: boolean; recoveryKey?: string; error?: string }> {
+  let res: Response;
+  try {
+    res = await fetch('/admin/auth/recover', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(input),
+    });
+  } catch {
+    return { ok: false, error: 'Could not reach the gateway.' };
+  }
+  const b = await res.json().catch(() => ({} as Record<string, unknown>));
+  if (res.ok) return { ok: true, recoveryKey: String(b.recoveryKey ?? '') };
+  return { ok: false, error: String(b.error ?? 'That email and recovery key do not match an active account.') };
 }
 
 // ── Endpoint contracts ────────────────────────────────────────────────────────
@@ -264,8 +389,10 @@ export interface AuthStatus {
 // Mirrors a row of GET /admin/tokens — an admin API token (the plaintext is only ever seen once,
 // at creation).
 export interface AdminApiTokenRow {
-  id: string; name: string; maskedKey: string; role: 'owner' | 'viewer';
+  id: string; name: string; maskedKey: string; role: AdminRole;
   lastUsedAt: string | null; createdAt: string;
+  /** Who minted it (Phase 7.13a). Null for a token created before accounts, or by a removed account. */
+  createdBy: string | null;
 }
 
 export interface GuardrailRule {
@@ -385,7 +512,48 @@ export interface HealthOverview {
 }
 
 // Mirrors GET /admin/config (system.routes.ts).
-export interface GatewayConfig { baseUrl: string; nexusApiKey: string | null; isFirstRun: boolean; }
+// `nexusApiKey` is gone as of Phase 7.13a: the key is stored as a hash, so the gateway has nothing
+// to send. What is left is the hint and whether one is set.
+export interface GatewayConfig {
+  baseUrl: string;
+  apiKeySet: boolean;
+  apiKeyMasked: string | null;
+  isFirstRun: boolean;
+}
+
+// ── Accounts (Phase 7.13a) ────────────────────────────────────────────────────
+
+export interface AdminUserRow {
+  id: string;
+  email: string;
+  name: string;
+  role: AdminRole;
+  status: 'active' | 'suspended';
+  source: 'local' | 'sso';
+  twoFactorEnabled: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+}
+
+export interface RoleInfo { label: string; description: string }
+export type RoleCatalogue = Record<AdminRole, RoleInfo>;
+
+export interface AdminUsersResponse { users: AdminUserRow[]; roles: RoleCatalogue }
+
+export interface AdminInviteRow {
+  id: string;
+  email: string;
+  role: AdminRole;
+  expiresAt: string;
+  expired: boolean;
+  invitedBy: string | null;
+  createdAt: string;
+}
+
+export interface AdminInvitesResponse { invites: AdminInviteRow[]; ttlDays: number }
+
+/** Mirrors GET /admin/me. `account` is null for a session minted from an admin API token. */
+export interface MeResponse { account: AdminUserRow | null; role: AdminRole }
 
 export const GET   = <T = unknown>(p: string) => api<T>('GET', p);
 export const POST  = <T = unknown>(p: string, b?: unknown) => api<T>('POST', p, b);

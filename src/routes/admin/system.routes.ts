@@ -18,48 +18,52 @@
 import { FastifyInstance }      from 'fastify';
 import { REGISTRY_CACHE_KEY }  from '../../lib/registryCacheKey';
 import { buildBaseUrl }        from '../../lib/baseUrl';
-import { getSetting, setSetting } from '../../services/settings.service';
+import { getApiKeyInfo, rotateApiKey } from '../../services/apiKey.service';
 import { prisma }              from '../../lib/prisma';
-import { randomUUID } from 'crypto';
 import { redis }               from '../../lib/redis';
-import { adminGuard, adminOwnerGuard } from './guard';
+import { adminGuard, adminOwnerGuard, adminWriteGuard } from './guard';
 import { ADMIN_WRITE_RATE_LIMIT, withRateLimit } from '../../lib/routeRateLimits';
 
 export default async function adminSystemRoutes(fastify: FastifyInstance) {
   // ── Dashboard config (auto-detects base URL from request) ────────
 
   fastify.get('/admin/config', adminGuard, async (request, reply) => {
-    const apiKey    = await getSetting('NEXUS_API_KEY');
+    const { set, masked } = await getApiKeyInfo();
     const providers = await prisma.nexusProvider.count();
     const baseUrl   = buildBaseUrl({
       host:           request.host, // NOT request.hostname — v5 strips the port
       forwardedProto: request.headers['x-forwarded-proto'],
       forwardedHost:  request.headers['x-forwarded-host'],
     });
-    return reply.send({ baseUrl, nexusApiKey: apiKey, isFirstRun: providers === 0 });
+    // `nexusApiKey` is deliberately gone (Phase 7.13a): the key is hashed at rest, so there is
+    // nothing to send. The dashboard shows the hint and offers a rotation instead of a copy button
+    // that would need a readable secret behind it.
+    return reply.send({ baseUrl, apiKeySet: set, apiKeyMasked: masked, isFirstRun: providers === 0 });
   });
 
   // ── Setup / health ────────────────────────────────────────────────
 
   fastify.get('/admin/status', adminGuard, async (request, reply) => {
-    const apiKey = await getSetting('NEXUS_API_KEY');
+    const { set } = await getApiKeyInfo();
     const providers = await prisma.nexusProvider.count();
     const keys      = await prisma.nexusKey.count({ where: { status: 'active' } });
     // `role` lets the dashboard restore its read-only state on reload (Phase 6.5).
-    return reply.send({ ok: true, providers, activeKeys: keys, apiKeySet: !!apiKey, role: request.adminRole ?? 'owner' });
+    return reply.send({ ok: true, providers, activeKeys: keys, apiKeySet: set, role: request.adminRole ?? 'owner' });
   });
 
   // ── API key management ────────────────────────────────────────────
 
   fastify.get('/admin/api-key', adminGuard, async (_req, reply) => {
-    const key = await getSetting('NEXUS_API_KEY');
-    return reply.send({ key });
+    // The hint, never the key. This route used to return the live credential in plain text to any
+    // admin caller; there is nothing left in the database that could answer that way now.
+    return reply.send(await getApiKeyInfo());
   });
 
   fastify.post('/admin/api-key/regenerate', adminOwnerGuard, async (_req, reply) => {
-    const newKey = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '');
-    await setSetting('NEXUS_API_KEY', newKey);
-    return reply.send({ key: newKey });
+    const { key, masked } = await rotateApiKey();
+    // Returned exactly once. The old key stops working immediately — which is the point of a
+    // rotation, and worth being loud about in the dashboard before the button is pressed.
+    return reply.send({ key, masked });
   });
 
   // ── Routing status ────────────────────────────────────────────────
@@ -110,7 +114,7 @@ export default async function adminSystemRoutes(fastify: FastifyInstance) {
 
   // ── Cache bust ────────────────────────────────────────────────────
 
-  fastify.post('/admin/cache/flush', withRateLimit(adminOwnerGuard, ADMIN_WRITE_RATE_LIMIT), async (_req, reply) => {
+  fastify.post('/admin/cache/flush', withRateLimit(adminWriteGuard, ADMIN_WRITE_RATE_LIMIT), async (_req, reply) => {
     await redis.del(REGISTRY_CACHE_KEY);
     return reply.send({ success: true });
   });

@@ -23,7 +23,7 @@
 // left exactly as it is for the old dashboard's parity.
 import { FastifyInstance } from 'fastify';
 import { getCacheStats, purgeResponseCache } from '../../services/cache.service';
-import { adminGuard, adminOwnerGuard } from './guard';
+import { adminGuard, adminWriteGuard } from './guard';
 
 export default async function adminCacheRoutes(fastify: FastifyInstance) {
   // A viewer may read the operational figures.
@@ -32,7 +32,7 @@ export default async function adminCacheRoutes(fastify: FastifyInstance) {
   });
 
   // Owner-only, and recorded as `cache.purge` by the admin audit hook (a mutation, not excluded).
-  fastify.post('/admin/cache/purge', adminOwnerGuard, async (_req, reply) => {
+  fastify.post('/admin/cache/purge', adminWriteGuard, async (_req, reply) => {
     return reply.send(await purgeResponseCache());
   });
 }

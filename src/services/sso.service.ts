@@ -32,7 +32,9 @@ import { redis }         from '../lib/redis';
 import { encrypt, decrypt } from '../lib/encryption';
 import { assertSafeUrl, stripTrailingSlash } from '../lib/url';
 import { getSsrfPolicy } from './ssrf.service';
-import { createSession, type AdminRole } from './adminAuth.service';
+import { createSession } from './adminAuth.service';
+import { provisionSsoUser } from './adminUsers.service';
+import type { AdminRole } from '../lib/roles';
 import { randomToken, generatePkce, buildAuthorizeUrl, normalizeScopes, mapClaimToRole } from '../lib/sso';
 
 const SINGLETON = 'singleton';
@@ -57,7 +59,11 @@ export type SsoErrorCode =
   | 'state_expired'
   | 'token_exchange_failed'
   | 'no_id_token'
-  | 'verification_failed';
+  | 'verification_failed'
+  // The identity provider authenticated them, but their Nexus account is suspended (Phase 7.13a).
+  // A distinct code because it is the one SSO failure that is not a misconfiguration: the sign-in
+  // worked exactly as intended, and the refusal is the point.
+  | 'account_suspended';
 
 export class SsoError extends Error {
   constructor(public code: SsoErrorCode, message?: string) {
@@ -344,10 +350,33 @@ export async function completeLogin(code: string, state: string): Promise<{ toke
     throw new SsoError('verification_failed', 'nonce mismatch');
   }
 
-  const role = mapClaimToRole(payload as Record<string, unknown>, {
+  const mappedRole = mapClaimToRole(payload as Record<string, unknown>, {
     roleClaim:  cfg.roleClaim,
     ownerValue: cfg.ownerValue,
   });
-  const session = await createSession(role);
-  return { token: session.token, role, expiresIn: session.expiresIn };
+
+  // Provision the person behind the sign-in (Phase 7.13a). Before accounts existed, an SSO session
+  // carried a role and no identity, so the audit trail could not name who did anything — the exact
+  // hole this phase closes. The claim's role applies only to a NEW account; for one that already
+  // exists, what an owner set in the Users tab wins.
+  const email = typeof payload.email === 'string' ? payload.email.trim() : '';
+  const name  = typeof payload.name === 'string' ? payload.name : '';
+
+  if (email) {
+    const user = await provisionSsoUser(email, name, mappedRole);
+    // Suspended: an offboarded person must not walk back in through the identity provider.
+    if (!user) throw new SsoError('account_suspended', 'This account is suspended. Contact an owner.');
+    const session = await createSession({ userId: user.id });
+    return { token: session.token, role: user.role, expiresIn: session.expiresIn };
+  }
+
+  // No email claim, so there is nobody to name. Rather than refuse a sign-in that worked yesterday,
+  // mint the same unattributed, role-only session SSO always did — and be honest in the log about
+  // why this one will appear in the audit trail without a name.
+  console.warn(
+    '  SSO: the ID token carried no "email" claim, so this sign-in cannot be tied to an account and ' +
+    'will be recorded without a name. Add "email" to the configured scopes to attribute it.',
+  );
+  const session = await createSession({ role: mappedRole });
+  return { token: session.token, role: mappedRole, expiresIn: session.expiresIn };
 }

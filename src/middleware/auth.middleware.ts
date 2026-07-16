@@ -16,10 +16,10 @@
 
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { createHash }   from 'crypto';
-import { getSetting }   from '../services/settings.service';
+import { verifyMasterApiKey } from '../services/apiKey.service';
 import { prisma }       from '../lib/prisma';
 import { safeEqual }    from '../lib/timingSafe';
-import { getSessionRole, verifyAdminApiToken, isTwoFactorEnabled } from '../services/adminAuth.service';
+import { resolveSession, verifyAdminApiToken, isPasswordBearerAllowed } from '../services/adminAuth.service';
 
 export async function verifyApiKey(request: FastifyRequest, reply: FastifyReply) {
   // Accept both `Authorization: Bearer <key>` (OpenAI clients) and `x-api-key: <key>`
@@ -33,10 +33,11 @@ export async function verifyApiKey(request: FastifyRequest, reply: FastifyReply)
     return reply.code(401).send({ error: 'Missing API key (Authorization: Bearer, or x-api-key)' });
   }
 
-  // 1. Check main Nexus API key. Constant-time: `===` short-circuits at the first
-  // differing byte, so rejection latency reveals how many leading bytes were right.
-  const nexusKey = await getSetting('NEXUS_API_KEY');
-  if (safeEqual(token, nexusKey)) return;
+  // 1. Check the main Nexus API key. Compared as hashes (Phase 7.13a): the key is no longer stored
+  // in plain text, so there is nothing to compare against directly. Hashing the candidate first
+  // also removes the timing question — the digests are fixed-width and an attacker cannot walk a
+  // prefix of one.
+  if (await verifyMasterApiKey(token)) return;
 
   // 2. Check team keys via SHA-256 hash (O(1) DB lookup, no decryption needed).
   // The team relation rides the same query so budget/status enforcement costs no
@@ -71,12 +72,14 @@ export async function verifyApiKey(request: FastifyRequest, reply: FastifyReply)
  *
  *   1. a dashboard session token from POST /admin/login,
  *   2. an admin API token (for scripts and CI, which cannot present a second factor),
- *   3. the raw ADMIN_PASSWORD — but ONLY while no second factor is confirmed.
+ *   3. the raw ADMIN_PASSWORD — but ONLY while the gateway is unclaimed AND no second factor is
+ *      confirmed.
  *
- * Rule 3 is the whole point of the phase. If the password kept working as a bearer
- * token after 2FA was enabled, anyone holding it would bypass the second factor and
- * the feature would be decorative. It stays accepted before enrolment so that
- * upgrading the gateway changes nothing for existing operators.
+ * Rule 3 is the point of two phases at once. If the password kept working as a bearer token after
+ * 2FA was enabled, anyone holding it would bypass the second factor and the feature would be
+ * decorative (Phase 6). And if it kept working once accounts existed, the audit trail would go back
+ * to saying "password" instead of a name, and nobody could ever truly be offboarded (Phase 7.13a).
+ * Both doors stay open until the operator closes them, so upgrading changes nothing on its own.
  */
 export async function verifyAdminPassword(request: FastifyRequest, reply: FastifyReply) {
   const auth = request.headers.authorization;
@@ -85,25 +88,33 @@ export async function verifyAdminPassword(request: FastifyRequest, reply: Fastif
   }
   const token = auth.slice(7);
 
-  // Resolve the caller's role and attach it, so requireOwner (and any handler) can read it.
-  // Order mirrors the credentials a caller may present: a dashboard session, an admin API
-  // token, then the raw password (owner, and only while no second factor is confirmed).
-  const sessionRole = await getSessionRole(token);
-  if (sessionRole) { request.adminRole = sessionRole; return; }
+  // Resolve who is calling and attach them, so the guards — and any handler that writes an audit
+  // entry — can read it. Order mirrors the credentials a caller may present: a dashboard session,
+  // an admin API token, then the raw password.
+  //
+  // A session resolves against its account on every request, so a removed or suspended person is
+  // refused here on their very next call rather than when their session happens to expire.
+  const session = await resolveSession(token);
+  if (session) {
+    request.adminRole = session.role;
+    if (session.userId) request.adminUserId = session.userId;
+    if (session.name)   request.adminUserName = session.name;
+    return;
+  }
 
   const tokenRole = await verifyAdminApiToken(token);
   if (tokenRole) { request.adminRole = tokenRole; return; }
 
-  if (await isTwoFactorEnabled()) {
+  if (!(await isPasswordBearerAllowed())) {
     return reply.code(401).send({
-      error: 'Two-factor authentication is enabled. Sign in at /admin/login for a session token, or use an admin API token.',
+      error: 'Sign in at /admin/login for a session token, or use an admin API token.',
     });
   }
 
   if (!safeEqual(token, process.env.ADMIN_PASSWORD)) {
     return reply.code(401).send({ error: 'Unauthorized' });
   }
-  request.adminRole = 'owner'; // the raw admin password is the owner
+  request.adminRole = 'owner'; // the raw admin password is the owner, until the gateway is claimed
 }
 
 /**

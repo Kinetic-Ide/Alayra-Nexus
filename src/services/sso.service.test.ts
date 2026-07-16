@@ -17,12 +17,19 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Hoisted so the vi.mock factories below (which are hoisted above imports) can close over them.
-const { prismaMock, redisMock, joseMock, ssrfMock, sessionMock } = vi.hoisted(() => ({
+const { prismaMock, redisMock, joseMock, ssrfMock, sessionMock, usersMock } = vi.hoisted(() => ({
   prismaMock:  { ssoProvider: { findUnique: vi.fn(), upsert: vi.fn() } },
   redisMock:   { get: vi.fn(), set: vi.fn(), del: vi.fn() },
   joseMock:    { jwtVerify: vi.fn(), createRemoteJWKSet: vi.fn(() => 'JWKS') },
   ssrfMock:    { getSsrfPolicy: vi.fn(async () => ({ allowPrivate: true, allowList: new Set<string>() })) },
-  sessionMock: { createSession: vi.fn(async (role: string) => ({ token: `sess-${role}`, expiresIn: 43200 })) },
+  // createSession takes a SUBJECT now (Phase 7.13a): { userId } for an account, { role } for a
+  // session with nobody behind it. The token encodes which, so the tests can tell them apart.
+  sessionMock: {
+    createSession: vi.fn(async (subject: { userId?: string; role?: string }) => ({
+      token: `sess-${subject.userId ?? subject.role}`, expiresIn: 43200,
+    })),
+  },
+  usersMock: { provisionSsoUser: vi.fn() },
 }));
 
 vi.mock('../lib/prisma', () => ({ prisma: prismaMock }));
@@ -35,6 +42,7 @@ vi.mock('../lib/encryption', () => ({
 }));
 vi.mock('./ssrf.service', () => ({ getSsrfPolicy: ssrfMock.getSsrfPolicy }));
 vi.mock('./adminAuth.service', () => ({ createSession: sessionMock.createSession }));
+vi.mock('./adminUsers.service', () => ({ provisionSsoUser: usersMock.provisionSsoUser }));
 
 import * as sso from './sso.service';
 
@@ -60,7 +68,9 @@ let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.clearAllMocks();
   ssrfMock.getSsrfPolicy.mockResolvedValue({ allowPrivate: true, allowList: new Set<string>() });
-  sessionMock.createSession.mockImplementation(async (role: string) => ({ token: `sess-${role}`, expiresIn: 43200 }));
+  sessionMock.createSession.mockImplementation(async (subject: { userId?: string; role?: string }) => ({
+    token: `sess-${subject.userId ?? subject.role}`, expiresIn: 43200,
+  }));
   redisMock.set.mockResolvedValue('OK');
   redisMock.del.mockResolvedValue(1);
   fetchMock = vi.fn();
@@ -179,7 +189,9 @@ describe('completeLogin', () => {
 
     const out = await sso.completeLogin('auth-code', 'state-xyz');
     expect(out).toEqual({ token: 'sess-owner', role: 'owner', expiresIn: 43200 });
-    expect(sessionMock.createSession).toHaveBeenCalledWith('owner');
+    // No email claim in this token, so there is no account to tie the sign-in to and the session
+    // carries a bare role — the unattributed shape SSO always had. See the provisioning tests below.
+    expect(sessionMock.createSession).toHaveBeenCalledWith({ role: 'owner' });
     // single use: the state is consumed before the exchange
     expect(redisMock.del).toHaveBeenCalledWith('nexus:sso:state:state-xyz');
     // the exchange carried the PKCE verifier and the client secret
@@ -194,7 +206,49 @@ describe('completeLogin', () => {
     joseMock.jwtVerify.mockResolvedValue({ payload: { nonce: 'nonce-1', groups: ['engineering'], sub: 'u2' } });
     const out = await sso.completeLogin('auth-code', 'state-xyz');
     expect(out.role).toBe('viewer');
-    expect(sessionMock.createSession).toHaveBeenCalledWith('viewer');
+    expect(sessionMock.createSession).toHaveBeenCalledWith({ role: 'viewer' });
+  });
+
+  // ── Provisioning (Phase 7.13a) ──────────────────────────────────────────────
+  // Before accounts, an SSO session carried a role and no identity, so the audit trail could never
+  // name who did anything through it. These tests are that hole being closed.
+
+  it('provisions an account from the email claim and signs in AS that person', async () => {
+    primeState();
+    joseMock.jwtVerify.mockResolvedValue({
+      payload: { nonce: 'nonce-1', groups: ['nexus-admins'], sub: 'u1', email: 'Ada@Example.com', name: 'Ada L' },
+    });
+    usersMock.provisionSsoUser.mockResolvedValue({ id: 'user-9', role: 'owner', email: 'ada@example.com', name: 'Ada L' });
+
+    const out = await sso.completeLogin('auth-code', 'state-xyz');
+    expect(usersMock.provisionSsoUser).toHaveBeenCalledWith('Ada@Example.com', 'Ada L', 'owner');
+    // The session names the account, not a role: authority is then read from the account.
+    expect(sessionMock.createSession).toHaveBeenCalledWith({ userId: 'user-9' });
+    expect(out).toEqual({ token: 'sess-user-9', role: 'owner', expiresIn: 43200 });
+  });
+
+  it('reports the ACCOUNT’s role, not the claim’s, for someone who already exists', async () => {
+    // Otherwise the Users tab would be lying: an owner sets someone to viewer, and their next SSO
+    // sign-in silently restores whatever the identity provider's groups happen to say.
+    primeState();
+    joseMock.jwtVerify.mockResolvedValue({
+      payload: { nonce: 'nonce-1', groups: ['nexus-admins'], sub: 'u1', email: 'ada@example.com' },
+    });
+    usersMock.provisionSsoUser.mockResolvedValue({ id: 'user-9', role: 'viewer', email: 'ada@example.com', name: 'Ada' });
+
+    const out = await sso.completeLogin('auth-code', 'state-xyz');
+    expect(out.role).toBe('viewer'); // claim said owner; the account says viewer, and the account wins
+  });
+
+  it('refuses a suspended account, so an offboarded person cannot walk back in through the IdP', async () => {
+    primeState();
+    joseMock.jwtVerify.mockResolvedValue({
+      payload: { nonce: 'nonce-1', groups: ['nexus-admins'], sub: 'u1', email: 'gone@example.com' },
+    });
+    usersMock.provisionSsoUser.mockResolvedValue(null); // null = suspended
+
+    await expect(sso.completeLogin('auth-code', 'state-xyz')).rejects.toMatchObject({ code: 'account_suspended' });
+    expect(sessionMock.createSession).not.toHaveBeenCalled();
   });
 
   it('refuses a replayed or expired state', async () => {

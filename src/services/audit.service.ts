@@ -45,6 +45,19 @@ export interface AuditEntry {
   method:     string;
   actorRole:  string;
   actor?:     string | null;
+  /**
+   * Who did it (Phase 7.13a). Null when there is genuinely nobody to name — an admin API token, a
+   * session that predates accounts, or the gateway acting on its own — and null is the honest answer
+   * in each case. Before accounts existed this was every row: the trail could say a role, never a
+   * person.
+   */
+  actorId?:   string | null;
+  /**
+   * The person's name AT THE TIME. Copied, not joined, on purpose: an audit record has to outlive
+   * the account it describes, because the question it answers is usually about someone who has
+   * since left.
+   */
+  actorName?: string | null;
   target?:    string | null;
   ip?:        string | null;
   status:     number;
@@ -142,6 +155,8 @@ export function recordAudit(entry: AuditEntry): void {
     method:    entry.method,
     actorRole: entry.actorRole,
     actor:     entry.actor  ?? null,
+    actorId:   entry.actorId   ?? null,
+    actorName: entry.actorName ?? null,
     target:    entry.target ?? null,
     ip:        entry.ip     ?? null,
     status:    entry.status,

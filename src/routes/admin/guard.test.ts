@@ -21,7 +21,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 // role gate can be unit-tested in isolation.
 vi.mock('../../middleware/auth.middleware', () => ({ verifyAdminPassword: vi.fn() }));
 
-import { requireOwner, adminOwnerGuard, adminGuard } from './guard';
+import { requireOwner, requireWrite, adminOwnerGuard, adminWriteGuard, adminGuard } from './guard';
 
 function fakeReply() {
   const state = { status: 0 as number, sent: undefined as unknown };
@@ -56,5 +56,46 @@ describe('requireOwner (Phase 6.5 RBAC)', () => {
     expect(adminOwnerGuard.preHandler).toHaveLength(2);
     expect(adminOwnerGuard.preHandler[1]).toBe(requireOwner);
     expect(adminGuard.preHandler).toHaveLength(1);
+  });
+
+  // Phase 7.13a: an admin is not an owner. This is the line that makes delegation safe — an admin
+  // who could manage people or edit the SSRF policy would effectively be an owner.
+  it('refuses an admin, and says what they have and what is needed', async () => {
+    const { reply, state } = fakeReply();
+    await requireOwner({ adminRole: 'admin' } as FastifyRequest, reply);
+    expect(state.status).toBe(403);
+    const body = state.sent as { error: string; requiredRole: string; role: string };
+    expect(body.error).toContain('owner');
+    expect(body.error).toContain('admin'); // names what they ARE, so they know who to ask
+    expect(body).toMatchObject({ requiredRole: 'owner', role: 'admin' });
+  });
+});
+
+describe('requireWrite (Phase 7.13a)', () => {
+  it('lets an owner and an admin through — running the gateway is what an admin is for', async () => {
+    for (const adminRole of ['owner', 'admin'] as const) {
+      const { reply, state } = fakeReply();
+      await requireWrite({ adminRole } as FastifyRequest, reply);
+      expect(state.status).toBe(0);
+    }
+  });
+
+  it('refuses a viewer with a 403', async () => {
+    const { reply, state } = fakeReply();
+    await requireWrite({ adminRole: 'viewer' } as FastifyRequest, reply);
+    expect(state.status).toBe(403);
+    expect((state.sent as { requiredRole: string }).requiredRole).toBe('admin');
+  });
+
+  it('refuses a caller with no role attached', async () => {
+    // Fails closed: an unattached role is treated as the least privilege, never the most.
+    const { reply, state } = fakeReply();
+    await requireWrite({} as FastifyRequest, reply);
+    expect(state.status).toBe(403);
+  });
+
+  it('adminWriteGuard runs auth then the write check', () => {
+    expect(adminWriteGuard.preHandler).toHaveLength(2);
+    expect(adminWriteGuard.preHandler[1]).toBe(requireWrite);
   });
 });
