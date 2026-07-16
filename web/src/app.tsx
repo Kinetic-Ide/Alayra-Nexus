@@ -6,6 +6,7 @@ import { Overview } from './pages/Overview';
 import { Nexus } from './pages/Nexus';
 import { Connect } from './pages/Connect';
 import { Analytics } from './pages/Analytics';
+import { Teams } from './pages/Teams';
 import { Security } from './pages/Security';
 import { Caching } from './pages/Caching';
 import { Settings } from './pages/Settings';
@@ -19,6 +20,7 @@ const PAGES: Record<string, FunctionComponent> = {
   nexus:     Nexus,
   connect:   Connect,
   analytics: Analytics,
+  teams:     Teams,
   security:  Security,
   caching:   Caching,
   settings:  Settings,

@@ -133,6 +133,43 @@ export interface CacheStats {
   recent: { hits: number; requests: number; hitRate: number; savedUsd: number };
 }
 
+// ── Teams (teams.routes.ts) ───────────────────────────────────────────────────
+// A team groups scoped access keys and carries a per-period budget cap and a preferred routing tier.
+export type TeamTier   = 'premium' | 'standard' | 'fast';
+export type TeamPeriod = 'daily' | 'weekly' | 'monthly';
+
+// Mirrors a row of GET /admin/teams — `spendUsd` is the current period's spend, computed server-side.
+export interface TeamRow {
+  id:           string;
+  name:         string;
+  status:       'active' | 'suspended';
+  assignedTier: TeamTier | null;
+  budgetUsd:    number | null;
+  budgetPeriod: TeamPeriod;
+  keyCount:     number;
+  spendUsd:     number;
+  createdAt:    string;
+}
+
+// The editable fields of a team (POST /admin/teams, PATCH /admin/teams/:id).
+export interface TeamDraft {
+  name:         string;
+  status:       'active' | 'suspended';
+  assignedTier: TeamTier | null;
+  budgetUsd:    number | null;
+  budgetPeriod: TeamPeriod;
+  byokFallback: boolean;
+}
+
+// Mirrors a row of GET /admin/team-keys — a scoped access key, optionally assigned to a team.
+export interface TeamKeyRow {
+  id:        string;
+  name:      string;
+  maskedKey: string;
+  team:      { id: string; name: string } | null;
+  createdAt: string;
+}
+
 // ── Security (auth.routes.ts) ─────────────────────────────────────────────────
 // Mirrors GET /admin/auth/status — second-factor state plus the sign-in policy facts.
 export interface AuthStatus {

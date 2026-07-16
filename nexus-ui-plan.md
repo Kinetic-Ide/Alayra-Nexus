@@ -50,8 +50,8 @@ milestone that makes five phases of work real; nothing after it matters as much.
 | **P7.4d** | Edit provider / edit key dialogs; **Max Users enforced**; per-provider extra headers (Anthropic `anthropic-version`) | `bd12911` `4ff409b` `5c695e8` |
 | **P7.5** | **Analytics**: per-request outcome + latency + **cache-savings recording** (they were never written down), one aggregate endpoint, live Analytics page | `2d604ef` `7ca17db` `ed2c7b8` |
 
-**Sections live in `web/`:** Overview · Nexus · Connect · Analytics · Security · Caching · Logs · Settings.
-**Still placeholders:** Teams · Enterprise · Admin.
+**Sections live in `web/`:** Overview · Nexus · Connect · Analytics · Teams · Security · Caching · Logs · Settings.
+**Still placeholders:** Enterprise · Admin.
 
 ---
 
@@ -127,11 +127,20 @@ the two rules that only ever false-positive here (`js/missing-rate-limiting`, `j
 each with a written justification. Every other query stays active — SSRF (`js/request-forgery`) included,
 with its one finding dismissed by design. Requires a one-time GitHub toggle (disable default setup).
 
-### P7.8 — Teams  ← *the last parity blocker*
-Team keys (the old dashboard's "Team Keys" tab), budget cap + period, per-team cost, BYOK fallback,
-and **wire `assignedTier` into routing** — it is stored today and silently ignored, which makes the
-field a lie. Members + Org are deliberately deferred to P7.13 (they need the same accounts primitive
-as sub-admins; build it once).
+### ~~P7.8 — Teams~~ ✅ **DONE** — *the last parity blocker cleared*
+Teams are now a first-class console section — the old dashboard only ever had a bare "Team Keys" list;
+this is a genuine upgrade. Two sub-tabs: **Teams** (create/edit/delete, with budget cap + period,
+status, and per-period spend shown against the cap) and **Access keys** (create, assign to a team,
+reassign, copy, revoke). The BYOK fall-back flag is edited on the team form.
+
+The headline fix: **`assignedTier` is wired into routing.** It used to be stored and silently ignored
+— a lie. A team's preferred tier now leads the model-first candidate ordering (`selectModels` takes a
+`preferredTier`, threaded from the team key through `discoverBestPool` on both the chat and non-chat
+paths), then the normal premium→standard→fast failover follows, so a preference never becomes an
+outage when that tier is momentarily exhausted. Unit-tested at the ordering layer.
+
+Members + Org are deliberately deferred to P7.13 (they need the same accounts primitive as sub-admins;
+build it once).
 
 ### P7.9 — **CUTOVER** 🚩 *the milestone*
 Serve `web/dist` instead of `frontend/`; build the dashboard in the Docker image and CI; verify static
@@ -182,8 +191,8 @@ The largest backend item; deliberately last, once the shell exists to present it
 
 ## 5. Known lies in the product to fix as we pass them
 
-- **`Team.assignedTier` is stored and silently ignored by routing.** The Nexus routing view says so
-  honestly today; P7.8 must either wire it or remove it.
+- ~~**`Team.assignedTier` is stored and silently ignored by routing.**~~ ✅ Fixed in P7.8 — it now
+  biases the model-first candidate ordering (preferred tier first, normal failover after).
 - **No `Org` model.** The Enterprise section cannot be honest until one exists or the scope shrinks.
 
 ---

@@ -38,6 +38,8 @@ export interface TeamContext {
   budgetUsd:    number | null;
   budgetPeriod: string;
   byokFallback?: boolean;
+  /** Preferred routing tier (Phase 8). null = no preference; routing uses the normal tier order. */
+  assignedTier?: string | null;
 }
 
 export interface CompletionsBody {
@@ -292,7 +294,7 @@ export async function handleProxy(
   // enforcement (see admitUser).
   const userId   = typeof body.user === 'string' ? body.user : null;
 
-  const route = await discoverBestPool(reserve, session, scope, 'chat', userId);
+  const route = await discoverBestPool(reserve, session, scope, 'chat', userId, team?.assignedTier ?? null);
   if (!route) {
     observe('no_capacity');
     const isolated = isIsolated(scope);

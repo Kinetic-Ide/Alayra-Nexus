@@ -7,6 +7,46 @@
 
 ---
 
+## 2026-07-16 (Session 54)
+
+---
+
+**Date:** 2026-07-16 · Session 54  
+**Title:** Teams — budgets, routing tiers, and the keys that use them  
+
+**Summary:**  
+This session builds out the Teams section of the dashboard, the last part of the console that still
+lagged behind what the gateway could already do. A team is a group with its own spending limit, its own
+preferred quality tier, and the set of access keys its members use. Everything a team needs has existed
+in the engine since earlier phases; what was missing was the screen to manage it and one honest piece of
+wiring behind the scenes.
+
+**A proper home for teams.** The Teams section now has two views. The first lists the teams themselves:
+you can create a team, set a monthly, weekly, or daily budget cap, choose a preferred routing tier,
+suspend or reactivate it, and see at a glance how much it has spent against its cap this period — a
+team that has gone over its budget is shown in red. The second view manages the access keys: create a
+key, assign it to a team so its usage counts against that team's budget and tier, move it to a different
+team, copy it, or revoke it. The old dashboard only ever had a bare list of keys, so this is a genuine
+step up rather than a like-for-like port.
+
+**Fixing a promise the product wasn't keeping.** Each team could already be given a preferred quality
+tier, but the routing engine quietly ignored it — the setting existed and did nothing. It now takes
+effect: a team's chosen tier is tried first when the gateway selects a model, and if that tier happens
+to be momentarily busy, the request still falls through to the normal order rather than failing. So the
+preference is honoured without ever turning into an outage. This applies to every kind of request the
+gateway proxies, not just chat.
+
+**Members and organisations are deliberately left for later.** Inviting individual people to a team, and
+grouping teams under a parent organisation, both depend on a shared "accounts" foundation that a later
+phase will build once and reuse — so they are intentionally out of scope here rather than half-built now.
+
+Everything was checked against the full test suite, including new tests covering the tier-preference
+ordering and the Teams screens. The complete automated gate — code style, type safety, tests,
+production build, and a dependency security scan — passes cleanly on both the gateway and the dashboard,
+with no known vulnerabilities.
+
+---
+
 ## 2026-07-15 (Session 53)
 
 ---

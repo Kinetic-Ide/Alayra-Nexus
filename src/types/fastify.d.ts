@@ -32,6 +32,8 @@ declare module 'fastify' {
       budgetUsd:    number | null;
       budgetPeriod: string;
       byokFallback: boolean;
+      /** Preferred routing tier (Phase 8), or null for none. */
+      assignedTier: string | null;
     };
   }
 }

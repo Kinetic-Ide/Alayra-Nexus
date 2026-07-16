@@ -310,12 +310,14 @@ export async function discoverBestPool(
   scope: RoutingScope = SHARED_SCOPE,
   capability: Capability = 'chat',
   userId: string | null = null,
+  preferredTier: string | null = null,
 ): Promise<NexusRoute | null> {
   const costWeight = await getCostWeight();
   const registry   = await getModelRegistry();
 
   // Model-first candidate list (Phase 6.1): the registry, filtered to this capability
-  // and to providers that actually have a pool, ordered tier → priority → cost.
+  // and to providers that actually have a pool, ordered tier → priority → cost. When the
+  // caller is a team with an assigned tier (Phase 8), that tier leads the ordering.
   const priceById = new Map<string, number | null>();
   for (const m of registry) priceById.set(m.id, effectivePrice(m as unknown as Record<string, unknown>));
   const candidates = selectModels(registry as unknown as SelectableModel[], {
@@ -323,6 +325,7 @@ export async function discoverBestPool(
     activeProviderSlugs: await activeProviderSlugs(),
     priceOf: (m) => priceById.get(m.id) ?? null,
     costWeight,
+    preferredTier,
   });
 
   // The legacy pool-tier path is used only for chat when no registry model qualifies.

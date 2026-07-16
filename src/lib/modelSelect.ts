@@ -60,6 +60,13 @@ export interface SelectOptions {
   priceOf: (m: SelectableModel) => number | null;
   /** Cost-aware weight in [0,1]. 0 leaves priority order untouched. */
   costWeight: number;
+  /**
+   * A team's preferred routing tier (`Team.assignedTier`), or null for none (Phase 8). When set,
+   * that tier's models are attempted *first*; the remaining tiers still follow in normal
+   * premium→standard→fast order, so a preference biases selection without ever hard-failing when the
+   * preferred tier is exhausted — the same availability contract the tier walk has always kept.
+   */
+  preferredTier?: string | null;
 }
 
 /**
@@ -79,8 +86,14 @@ export function selectModels(models: SelectableModel[], opts: SelectOptions): Se
     m.capabilities.includes(opts.capability) &&
     opts.activeProviderSlugs.has(m.provider));
 
-  // Primary key: tier. Secondary: priority. Stable, so equal keys keep input order.
-  eligible.sort((a, b) => (tierRank(a.tier) - tierRank(b.tier)) || (a.priority - b.priority));
+  // A team's preferred tier sorts ahead of every other tier (rank -1); the rest keep their normal
+  // premium→standard→fast order. Boosting a tier that is already first (e.g. preferredTier === the
+  // top tier present) is a no-op, since every member of that tier moves together.
+  const rankOf = (tier: string): number =>
+    opts.preferredTier && tier === opts.preferredTier ? -1 : tierRank(tier);
+
+  // Primary key: (preferred-)tier. Secondary: priority. Stable, so equal keys keep input order.
+  eligible.sort((a, b) => (rankOf(a.tier) - rankOf(b.tier)) || (a.priority - b.priority));
 
   if (opts.costWeight <= 0) return eligible;
 

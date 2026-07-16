@@ -4,6 +4,17 @@
 .cols2 { grid-template-columns: 1fr 1fr; }
 .section { margin-top: 22px; }
 
+/* A card/list header: a title on the left, one action (e.g. "New team") pushed to the right. */
+.listHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.listHeadTitle { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.rowActions { display: inline-flex; gap: 6px; }
+
+/* The "create an access key" row: a growable name field, a fixed-width team picker, then the button. */
+.keyCreateRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.keyCreateRow input { flex: 1 1 200px; min-width: 0; }
+.keyCreateRow select { flex: 0 0 180px; }
+.keyCreateRow button { flex: 0 0 auto; }
+
 .scaffold { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
 .scaffold code { font-family: var(--font-mono); color: var(--accent); background: var(--accent-bg); padding: 1px 6px; border-radius: 5px; }
 

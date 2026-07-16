@@ -129,3 +129,40 @@ describe('selectModels — cost tiebreaker', () => {
     expect(out.map(m => m.id)).toEqual(['prem-cheap', 'prem-dear', 'fast-cheap']);
   });
 });
+
+describe('selectModels — team preferred tier (Phase 8)', () => {
+  const models = [
+    model({ id: 'prem', tier: 'premium', priority: 1 }),
+    model({ id: 'std',  tier: 'standard', priority: 1 }),
+    model({ id: 'fast', tier: 'fast',    priority: 1 }),
+  ];
+
+  it('leaves the normal order untouched when no tier is preferred', () => {
+    expect(selectModels(models, opts()).map(m => m.id)).toEqual(['prem', 'std', 'fast']);
+    expect(selectModels(models, opts({ preferredTier: null })).map(m => m.id)).toEqual(['prem', 'std', 'fast']);
+  });
+
+  it('promotes the preferred tier to the front, then keeps normal order for the rest', () => {
+    expect(selectModels(models, opts({ preferredTier: 'fast' })).map(m => m.id)).toEqual(['fast', 'prem', 'std']);
+    expect(selectModels(models, opts({ preferredTier: 'standard' })).map(m => m.id)).toEqual(['std', 'prem', 'fast']);
+  });
+
+  it('is a no-op when the preferred tier is already first', () => {
+    expect(selectModels(models, opts({ preferredTier: 'premium' })).map(m => m.id)).toEqual(['prem', 'std', 'fast']);
+  });
+
+  it('never hard-fails: an unknown/absent preferred tier still yields the full failover list', () => {
+    // A team assigned a tier that no active model provides falls straight through to normal order,
+    // so it is served rather than starved.
+    expect(selectModels(models, opts({ preferredTier: 'nonsense' })).map(m => m.id)).toEqual(['prem', 'std', 'fast']);
+  });
+
+  it('keeps priority as the within-tier tiebreaker after promotion', () => {
+    const many = [
+      model({ id: 'prem-a', tier: 'premium', priority: 1 }),
+      model({ id: 'fast-b', tier: 'fast', priority: 2 }),
+      model({ id: 'fast-a', tier: 'fast', priority: 1 }),
+    ];
+    expect(selectModels(many, opts({ preferredTier: 'fast' })).map(m => m.id)).toEqual(['fast-a', 'fast-b', 'prem-a']);
+  });
+});
