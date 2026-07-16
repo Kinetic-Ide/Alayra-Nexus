@@ -7,6 +7,60 @@
 
 ---
 
+## 2026-07-16 (Session 57)
+
+---
+
+**Date:** 2026-07-16 · Session 57  
+**Title:** Team spending — a stats view per team, and a choice of what happens at the budget limit  
+
+**Summary:**  
+Teams previously answered "who exists and what are their keys". This change makes them answer the
+question an administrator actually asks: **where is the money going, and what should happen when a team
+runs out of it.**
+
+**Teams is now three tabs.** *Overview* is the team list and totals, as before. *Access keys* is the
+same global list of keys, now with a search box and a filter by team, so a busy deployment stays
+navigable. *Team stats* is new, and is the centrepiece.
+
+**Team stats.** Pick a team (with a search box for when there are many) and a period — today, 7 days,
+30 days, or 90 days. You get that team's spend, request count, success rate and token use for the
+window, trend charts for cost and requests, its busiest models, and a **member breakdown**: every
+access key in the team, what it spent, and its share of the team's total. Selecting a member expands it
+in place to show its spend, share, requests, tokens, average cost per request, and when it was last
+active. Keys that have never been used are still listed, marked idle — "nobody is using this key" is
+exactly the kind of thing worth seeing.
+
+Two honesty points are built into this screen. A "member" is a team's access key, because that is what
+the gateway genuinely knows — a key is what a person or service presents, so a key is the seat. And a
+member's figure is a **share of the team's spend, not an allowance**: the budget belongs to the team,
+and no per-person limit exists, so none is implied. The screen also keeps the viewing period and the
+team's own billing cycle clearly apart — a 7-day spend is never shown as progress against a monthly
+limit, because that would misstate how much budget is left.
+
+**A choice at the limit.** Until now, reaching a budget meant one thing: the team was cut off until the
+period reset. Each team can now be set to one of three behaviours. *Block* is the original — refuse new
+requests at the limit. *Notify only* makes the budget a warning line rather than a wall: the alert is
+sent, the work continues. *Downgrade* keeps the team running but switches it to the cheapest models once
+over budget, trading some quality for staying online instead of stopping. Existing teams were left on
+*Block*, so nothing changed for anyone without an explicit decision. The chosen behaviour is stated
+plainly on the team's budget card, so it is never a surprise.
+
+**What was deliberately not built.** Budgets that cascade from a company-wide or provider-pool level,
+splitting one team's budget by percentage across model tiers, per-team alert recipients, and
+quarterly/annual periods were all considered and left out: the current data model cannot support them
+truthfully, and a control that looks real but does nothing is worse than an absent one. Each is recorded
+in the plan's backlog with the reason. A side-by-side team comparison view is also noted there as a
+future enhancement.
+
+The new stats view, the member breakdown, the key filter, and all three budget behaviours are covered by
+tests, including one proving an over-budget team set to *downgrade* is genuinely served on the cheap
+tier rather than blocked. The complete automated gate — code style, type safety, tests, production
+build, and a dependency security scan — passes cleanly on both the gateway and the dashboard, with no
+known vulnerabilities.
+
+---
+
 ## 2026-07-16 (Session 56)
 
 ---

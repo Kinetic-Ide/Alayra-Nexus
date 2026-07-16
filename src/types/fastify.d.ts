@@ -34,6 +34,8 @@ declare module 'fastify' {
       byokFallback: boolean;
       /** Preferred routing tier (Phase 8), or null for none. */
       assignedTier: string | null;
+      /** What happens at the budget cap (Phase 7.10): "block" | "notify" | "downgrade". */
+      overBudgetAction: string;
     };
   }
 }

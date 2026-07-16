@@ -27,7 +27,7 @@ import { getGuardrailConfig }         from './guardrails.service';
 import { evaluateMessages, evaluateText, type CompiledRule } from '../lib/guardrails';
 import * as metrics                   from '../lib/metrics';
 import { startUpstreamSpan, SpanStatusCode } from '../lib/tracing';
-import { checkTeamBudget, type BudgetPeriod } from './budget.service';
+import { checkTeamBudget, type BudgetPeriod, type OverBudgetAction } from './budget.service';
 import { getCacheConfig }              from './cache.service';
 import { isCacheable, responseCacheKey, getCached, setCached, toCompletionJson, buildFromCompletion, buildFromStream } from '../lib/responseCache';
 import { resolveRequestScope }         from './byok.service';
@@ -40,6 +40,8 @@ export interface TeamContext {
   byokFallback?: boolean;
   /** Preferred routing tier (Phase 8). null = no preference; routing uses the normal tier order. */
   assignedTier?: string | null;
+  /** What happens at the budget cap (Phase 7.10): "block" | "notify" | "downgrade". Defaults to block. */
+  overBudgetAction?: string;
 }
 
 export interface CompletionsBody {
@@ -194,8 +196,11 @@ export async function handleProxy(
   // ── Team budget gate — enforced before any provider work happens. Requests
   // already in flight when the cap is crossed may overshoot by their own cost
   // (cost is unknowable up front on a streaming gateway); see budget.service.
+  // Over-budget behaviour is per-team (Phase 7.10): "block" refuses here, "notify"
+  // admits silently, and "downgrade" admits but pins routing to the fast tier below.
+  let overBudgetDowngrade = false;
   if (team && team.budgetUsd != null) {
-    const budget = await checkTeamBudget(team.id, team.budgetUsd, team.budgetPeriod as BudgetPeriod);
+    const budget = await checkTeamBudget(team.id, team.budgetUsd, team.budgetPeriod as BudgetPeriod, (team.overBudgetAction ?? 'block') as OverBudgetAction);
     if (!budget.allowed) {
       observe('budget_blocked');
       return reply
@@ -208,6 +213,7 @@ export async function handleProxy(
           retryAfter: budget.retryAfterSeconds,
         });
     }
+    overBudgetDowngrade = budget.downgrade;
   }
 
   const messages = Array.isArray(body.messages) ? body.messages : [];
@@ -294,7 +300,10 @@ export async function handleProxy(
   // enforcement (see admitUser).
   const userId   = typeof body.user === 'string' ? body.user : null;
 
-  const route = await discoverBestPool(reserve, session, scope, 'chat', userId, team?.assignedTier ?? null);
+  // An over-budget team on the "downgrade" action is routed to the fast (cheapest) tier regardless of
+  // its normal preference, so it keeps working at the lowest cost rather than being cut off.
+  const preferredTier = overBudgetDowngrade ? 'fast' : (team?.assignedTier ?? null);
+  const route = await discoverBestPool(reserve, session, scope, 'chat', userId, preferredTier);
   if (!route) {
     observe('no_capacity');
     const isolated = isIsolated(scope);

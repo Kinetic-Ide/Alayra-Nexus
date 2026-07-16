@@ -127,14 +127,37 @@ describe('checkTeamBudget', () => {
     expect(rGet).not.toHaveBeenCalled();
   });
 
-  it('allows under the cap and blocks at/over it', async () => {
+  it('allows under the cap and blocks at/over it (default action)', async () => {
     rGet.mockResolvedValueOnce('9.99');
-    expect((await checkTeamBudget('t1', 10, 'monthly')).allowed).toBe(true);
+    const under = await checkTeamBudget('t1', 10, 'monthly');
+    expect(under.allowed).toBe(true);
+    expect(under.downgrade).toBe(false);
 
     rGet.mockResolvedValueOnce('10');
     const blocked = await checkTeamBudget('t1', 10, 'monthly');
     expect(blocked.allowed).toBe(false);
+    expect(blocked.downgrade).toBe(false);
     expect(blocked.spendUsd).toBe(10);
     expect(blocked.retryAfterSeconds).toBeGreaterThan(0);
+  });
+
+  it('"notify" is a soft cap: over budget but still admitted, never downgraded', async () => {
+    rGet.mockResolvedValueOnce('25');
+    const v = await checkTeamBudget('t1', 10, 'monthly', 'notify');
+    expect(v.allowed).toBe(true);
+    expect(v.downgrade).toBe(false);
+    expect(v.spendUsd).toBe(25);
+  });
+
+  it('"downgrade" admits over-budget traffic and flags it for fast-tier routing', async () => {
+    rGet.mockResolvedValueOnce('5');
+    const under = await checkTeamBudget('t1', 10, 'monthly', 'downgrade');
+    expect(under.allowed).toBe(true);
+    expect(under.downgrade).toBe(false); // under budget: nothing changes yet
+
+    rGet.mockResolvedValueOnce('12');
+    const over = await checkTeamBudget('t1', 10, 'monthly', 'downgrade');
+    expect(over.allowed).toBe(true);
+    expect(over.downgrade).toBe(true);
   });
 });

@@ -132,24 +132,39 @@ export async function addSpend(teamId: string, period: BudgetPeriod, usd: number
   return Number.isFinite(total) ? total : null;
 }
 
+// What a team does once its period cap is reached (Phase 7.10). "block" is the historical behaviour
+// — a hard refusal until the window resets. "notify" is a soft cap: the request is admitted anyway
+// (the 80%/100% alert still fires elsewhere), so a budget is a warning line, not a wall. "downgrade"
+// keeps serving but forces the cheapest tier, trading model quality for continued availability.
+export type OverBudgetAction = 'block' | 'notify' | 'downgrade';
+
 export interface BudgetVerdict {
-  allowed:           boolean;
+  allowed:           boolean;       // false only when over budget AND the action is "block"
+  downgrade:         boolean;       // true when over budget AND the action is "downgrade"
   spendUsd:          number;
   budgetUsd:         number | null;
   retryAfterSeconds: number;
 }
 
-/** Admission check: is this team still inside its budget window? */
+/**
+ * Admission check: is this team still inside its budget window, and if not, what should happen?
+ * The chosen `overBudgetAction` only matters once spend has reached the cap — under budget, every
+ * action behaves identically (admitted, no downgrade). Defaults to "block" so a caller that omits it
+ * (and every pre-7.10 test) keeps the original hard-cap semantics.
+ */
 export async function checkTeamBudget(
   teamId: string,
   budgetUsd: number | null,
   period: BudgetPeriod,
+  overBudgetAction: OverBudgetAction = 'block',
   now: Date = new Date(),
 ): Promise<BudgetVerdict> {
-  if (budgetUsd == null) return { allowed: true, spendUsd: 0, budgetUsd: null, retryAfterSeconds: 0 };
-  const spendUsd = await getCurrentSpend(teamId, period, now);
+  if (budgetUsd == null) return { allowed: true, downgrade: false, spendUsd: 0, budgetUsd: null, retryAfterSeconds: 0 };
+  const spendUsd   = await getCurrentSpend(teamId, period, now);
+  const overBudget = spendUsd >= budgetUsd;
   return {
-    allowed:           spendUsd < budgetUsd,
+    allowed:           !overBudget || overBudgetAction !== 'block',
+    downgrade:         overBudget && overBudgetAction === 'downgrade',
     spendUsd,
     budgetUsd,
     retryAfterSeconds: periodEndSeconds(period, now),

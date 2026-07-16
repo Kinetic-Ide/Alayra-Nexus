@@ -165,11 +165,33 @@ generic path so a failed sign-in doesn't self-trigger the 401 handler) and `clea
 identity (sub-admins, first-run, recovery-key, device fingerprint) is still P7.13; this is just the
 front door so the product is usable.
 
-### P7.10 — Budgeting cascade *(depends on P7.8 — a budget cannot cascade to teams that have no UI)*
-Org-total budget → pools → teams, each team knowing its limit; route X% of a team's budget to premium
-vs standard; configurable threshold actions (notify admin / notify admin + team / block / route
-elsewhere); team-wise email alerts; budget analytics (monthly/quarterly/annual, per team, per model).
-*Backend already enforces per-team `budgetUsd` + period on admission — this extends it to a cascade.*
+### ~~P7.10 — Budgeting cascade + Teams restructure~~ ✅ **DONE**
+Teams became **three sub-tabs**: **Overview** (the team list + totals), **Access keys** (the global
+key view, now filterable by team and free-text search), and **Team stats** — the new one. Team stats
+is a team selector (dropdown + search) and a period filter (today/7d/30d/90d) over a new read,
+`GET /admin/teams/:id/stats` (`services/teamStats.service.ts`): spend/requests/success-rate/tokens for
+the viewing window, cost + request trends, busiest models (reusing Analytics' `ByModel`), and the
+**per-member breakdown** — one row per access key, click to expand into spend, share of team,
+requests, tokens, cost/request and last-active. A **"member" is honestly a team's access key**: the
+gateway has no user identity, so a key *is* the seat, and an idle key is listed with zeros rather than
+dropped. **Share is a proportion, never an allocation** — the cap lives on the team and no per-member
+cap exists to report. Two windows coexist and are labelled: the period tabs pick the *viewing* window,
+while the budget card reports the team's *own* daily/weekly/monthly cycle, read exactly the way
+admission reads it — blurring them would show a 7-day spend against a monthly cap.
+
+The cascade's enforceable half: **`Team.overBudgetAction`** (migration `0013`, additive, default
+`'block'` = the historical behaviour, so no existing team changed). `block` = today's hard 429;
+`notify` = a soft cap that alerts but never blocks; `downgrade` = keep serving but pin routing to the
+fast/cheapest tier. Threaded through `checkTeamBudget` (which now returns `downgrade` alongside
+`allowed`) into **both** admission paths, where an over-budget downgraded team routes to `fast`
+regardless of its `assignedTier`. Unit-tested at the verdict layer and proven on the dispatch path
+(over-budget → served, not blocked, with `discoverBestPool` called with `fast`).
+
+*Deliberately not built, because the schema cannot back it honestly (see §5):* an **org-level or
+pool-level budget parent** (no `Org` model exists, and pools are shared infrastructure, not spend
+owners), a **true per-tier % split** of one budget (needs two caps per team), **per-team email
+recipients** (notification config is global), and **quarterly/annual** windows. Listed in the backlog
+rather than faked.
 
 ### P7.11 — Notifications bell + Branding
 Live unread feed that deep-links to the section that raised it (needs a small notification store —
@@ -186,6 +208,15 @@ Sub-admins, role-based viewer users, invites; first-run key generation (hashed) 
 The largest backend item; deliberately last, once the shell exists to present it.
 
 ### Backlog (unscheduled — pull in when they earn it)
+- **Team stats: Comparison mode** *(Abbas, 2026-07-16)* — a "Compare" button in Team stats to select
+  2 teams or 2 members and show them side-by-side / overlaid. Deferred by agreement as a future
+  enhancement once the base Team stats tab is in use; the stats endpoint already returns everything a
+  comparison needs, so this is a UI-only addition (two fetches, one layout).
+- **Budget cascade — the levels the schema cannot back yet** *(from P7.10)*: an **Org/pool budget
+  parent** (blocked on the missing `Org` model — pools are shared infrastructure, so a pool budget
+  would need a new owner concept), a **per-tier % split** of a team's budget (needs two caps per team
+  and a per-tier spend counter), **per-team email recipients** (notification config is global today),
+  and **quarterly/annual** budget windows (the counter TTLs and `periodKey` assume ≤ monthly).
 - **Benchmarks + branded PDF** — run tests on demand, clean report, downloadable.
 - **First-class provider presets** — xAI, Azure, Bedrock, Vertex, HuggingFace, Together. They work
   **today** only via the generic `custom` OpenAI-compatible path (baseUrl + auth + modelIdPath); there

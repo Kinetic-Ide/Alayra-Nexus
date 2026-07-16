@@ -239,4 +239,19 @@ describe('dispatchProxy — failures feed the breaker', () => {
     expect(state.status).toBe(429);
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
+
+  it('pins an over-budget "downgrade" team to the fast tier instead of blocking it (Phase 7.10)', async () => {
+    h.route = okRoute;
+    h.fetchImpl = async () => ({ ok: true, status: 200, json: async () => ({ usage: { prompt_tokens: 5, completion_tokens: 2 } }) });
+    const budget = await import('./budget.service');
+    vi.mocked(budget.checkTeamBudget).mockResolvedValueOnce({ allowed: true, downgrade: true, spendUsd: 12, retryAfterSeconds: 60 } as never);
+    const { reply, state } = fakeReply();
+    await dispatchProxy({ input: 'hi' }, reply, {
+      capability: 'embedding', upstreamPath: '/embeddings', reserveTokens: 3,
+      team: { id: 't1', budgetUsd: 10, budgetPeriod: 'monthly', overBudgetAction: 'downgrade', assignedTier: 'premium' },
+    });
+    expect(state.status).toBe(200); // served, not blocked
+    // The team prefers "premium", but being over budget forces the cheapest tier for routing.
+    expect(nexus.discoverBestPool).toHaveBeenLastCalledWith(3, null, expect.anything(), 'embedding', null, 'fast');
+  });
 });

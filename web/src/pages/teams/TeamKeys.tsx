@@ -36,6 +36,11 @@ export function TeamKeys() {
   const [revoking, setRevoking] = useState<TeamKeyRow | null>(null);
   const [revBusy, setRevBusy]   = useState(false);
 
+  // Global view of every key across teams, filterable so a busy deployment stays navigable: by team
+  // ('' = all, 'none' = unassigned) and a free-text match on name or masked key.
+  const [filterTeam, setFilterTeam] = useState('');
+  const [search, setSearch]         = useState('');
+
   const create = async () => {
     if (!name.trim() || creating) return;
     setCreating(true); setFormErr(null); setFresh(null);
@@ -121,7 +126,28 @@ export function TeamKeys() {
             <Button size="sm" onClick={reload}>Retry</Button>
           </div>
         )}
-        {data && <Table columns={cols} rows={data.keys} rowKey={(k) => k.id} empty="No access keys yet." />}
+        {data && (() => {
+          const q = search.trim().toLowerCase();
+          const rows = data.keys.filter((k) => {
+            const teamOk = filterTeam === '' ? true : filterTeam === 'none' ? k.team == null : k.team?.id === filterTeam;
+            const textOk = q === '' ? true : k.name.toLowerCase().includes(q) || k.maskedKey.toLowerCase().includes(q);
+            return teamOk && textOk;
+          });
+          return (
+            <>
+              <div class={s.keyCreateRow}>
+                <Input value={search} placeholder="Search name or key…" onInput={(e) => setSearch((e.target as HTMLInputElement).value)} />
+                <Select value={filterTeam} onChange={(e) => setFilterTeam((e.target as HTMLSelectElement).value)} aria-label="Filter by team">
+                  <option value="">All teams</option>
+                  <option value="none">Unassigned</option>
+                  {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </Select>
+              </div>
+              <Table columns={cols} rows={rows} rowKey={(k) => k.id}
+                empty={data.keys.length === 0 ? 'No access keys yet.' : 'No keys match this filter.'} />
+            </>
+          );
+        })()}
       </Card>
 
       {reassign && (

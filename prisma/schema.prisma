@@ -118,6 +118,11 @@ model Team {
   assignedTier String?        // preferred routing tier — stored now, wired with the Teams tab rebuild
   budgetUsd    Float?         // USD spend cap per period; null = unlimited
   budgetPeriod String         @default("monthly") // daily | weekly | monthly
+  // What happens when the period cap is reached (Phase 7.10). "block" = today's behaviour, a hard
+  // 429 until the window resets; "notify" = a soft cap that only alerts and never blocks; "downgrade"
+  // = keep serving but force the cheapest (fast) tier once over budget, to conserve spend rather than
+  // stop work. Defaults to "block" so every existing team is unchanged by the migration.
+  overBudgetAction String     @default("block") // block | notify | downgrade
   // BYOK (Phase 5.5): when the team owns provider keys, may its traffic fall back to
   // the shared pool once its own keys are exhausted? false = hard isolation (503).
   // Ignored for teams that own no keys — they always use the shared pool.

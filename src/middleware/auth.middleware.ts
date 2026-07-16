@@ -57,6 +57,7 @@ export async function verifyApiKey(request: FastifyRequest, reply: FastifyReply)
         budgetPeriod: teamKey.team.budgetPeriod,
         byokFallback: teamKey.team.byokFallback,
         assignedTier: teamKey.team.assignedTier,
+        overBudgetAction: teamKey.team.overBudgetAction,
       };
     }
     return;

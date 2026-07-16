@@ -18,6 +18,7 @@
 import { FastifyInstance }      from 'fastify';
 import { encrypt, decrypt } from '../../lib/encryption';
 import { getCurrentSpend, type BudgetPeriod } from '../../services/budget.service';
+import { getTeamStats, type TeamStatsPeriod } from '../../services/teamStats.service';
 import { prisma }              from '../../lib/prisma';
 import { randomUUID, createHash, randomBytes } from 'crypto';
 import { redis }               from '../../lib/redis';
@@ -36,6 +37,9 @@ export default async function adminTeamsRoutes(fastify: FastifyInstance) {
     assignedTier: z.enum(['premium', 'standard', 'fast']).nullish(),
     budgetUsd:    z.number().positive().nullish(),
     budgetPeriod: z.enum(['daily', 'weekly', 'monthly']).default('monthly'),
+    // What happens at the cap (Phase 7.10): block (hard 429), notify (soft — alert only), or
+    // downgrade (keep serving on the fast tier). Defaults to the historical hard-block behaviour.
+    overBudgetAction: z.enum(['block', 'notify', 'downgrade']).default('block'),
     // BYOK: may this team's traffic fall back to the shared pool once its own
     // provider keys are exhausted? Ignored for teams that own no keys.
     byokFallback: z.boolean().default(true),
@@ -55,11 +59,24 @@ export default async function adminTeamsRoutes(fastify: FastifyInstance) {
       assignedTier: t.assignedTier,
       budgetUsd:    t.budgetUsd,
       budgetPeriod: t.budgetPeriod,
+      overBudgetAction: t.overBudgetAction,
       keyCount:     t._count.teamKeys,
       spendUsd:     await getCurrentSpend(t.id, t.budgetPeriod as BudgetPeriod),
       createdAt:    t.createdAt,
     })));
     return reply.send({ teams: withSpend });
+  });
+
+  // Per-team analytics for the Team Stats tab (Phase 7.10) — spend, usage, and the per-key
+  // ("member") breakdown over a viewing window, read-only.
+  const STATS_PERIODS = new Set<TeamStatsPeriod>(['today', '7d', '30d', '90d']);
+  fastify.get('/admin/teams/:id/stats', adminGuard, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const raw    = (request.query as { period?: string }).period;
+    const period = (raw && STATS_PERIODS.has(raw as TeamStatsPeriod) ? raw : '7d') as TeamStatsPeriod;
+    const stats  = await getTeamStats(id, period);
+    if (!stats) return reply.code(404).send({ error: 'Team not found' });
+    return reply.send(stats);
   });
 
   fastify.post('/admin/teams', adminOwnerGuard, async (request, reply) => {

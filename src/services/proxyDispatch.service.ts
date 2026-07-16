@@ -25,7 +25,7 @@ import { countTokens }          from '../lib/tokenizer';
 import { stripTrailingSlash, assertSafeUrl } from '../lib/url';
 import { withExtraHeaders }       from '../lib/providerHeaders';
 import { getSsrfPolicy }         from './ssrf.service';
-import { checkTeamBudget, type BudgetPeriod } from './budget.service';
+import { checkTeamBudget, type BudgetPeriod, type OverBudgetAction } from './budget.service';
 import { resolveRequestScope }   from './byok.service';
 import { isByok, isIsolated }    from '../lib/scope';
 import type { Capability }       from '../lib/modelSelect';
@@ -148,20 +148,25 @@ export async function dispatchProxy(
   };
   const responseMode = opts.responseMode ?? 'json';
 
-  // Team budget gate — before any provider work.
+  // Team budget gate — before any provider work. Over-budget behaviour is per-team (Phase 7.10):
+  // "block" refuses here, "notify" admits silently, "downgrade" admits but pins routing to fast below.
+  let overBudgetDowngrade = false;
   if (team && team.budgetUsd != null) {
-    const budget = await checkTeamBudget(team.id, team.budgetUsd, team.budgetPeriod as BudgetPeriod);
+    const budget = await checkTeamBudget(team.id, team.budgetUsd, team.budgetPeriod as BudgetPeriod, (team.overBudgetAction ?? 'block') as OverBudgetAction);
     if (!budget.allowed) {
       observe('budget_blocked');
       return reply.code(429).header('Retry-After', String(budget.retryAfterSeconds))
         .send({ error: `Team budget exhausted: $${budget.spendUsd.toFixed(4)} of $${team.budgetUsd} used. Resets in ${budget.retryAfterSeconds}s.`, retryAfter: budget.retryAfterSeconds });
     }
+    overBudgetDowngrade = budget.downgrade;
   }
 
   const scope = await resolveRequestScope(team);
   // OpenAI-standard end-user id (when the caller sends one), for per-key Max Users enforcement.
   const userId = typeof body.user === 'string' ? body.user : null;
-  const route = await discoverBestPool(reserveTokens, null, scope, capability, userId, team?.assignedTier ?? null);
+  // A downgraded (over-budget) team is pinned to the fast/cheapest tier regardless of its preference.
+  const preferredTier = overBudgetDowngrade ? 'fast' : (team?.assignedTier ?? null);
+  const route = await discoverBestPool(reserveTokens, null, scope, capability, userId, preferredTier);
   if (!route) {
     observe('no_capacity');
     const isolated = isIsolated(scope);

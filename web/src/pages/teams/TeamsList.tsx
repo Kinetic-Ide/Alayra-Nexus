@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks';
 import { Users, Plus, Pencil, Trash2, Coins } from 'lucide-preact';
-import { POST, PATCH, DEL, ApiError, type TeamRow, type TeamDraft, type TeamTier, type TeamPeriod } from '../../api';
+import { POST, PATCH, DEL, ApiError, type TeamRow, type TeamDraft, type TeamTier, type TeamPeriod, type TeamOverBudgetAction } from '../../api';
 import { Card, Button, Badge, Spinner, StatCard, Table, Field, Input, Select, FieldRow, Toggle, FormError, Modal, type Column } from '../../ui';
 import { useApi } from '../../hooks/useApi';
 import { currency } from '../../lib/format';
@@ -21,8 +21,14 @@ function friendlyError(err: unknown, fallback: string): string {
 }
 
 const emptyDraft = (): TeamDraft => ({
-  name: '', status: 'active', assignedTier: null, budgetUsd: null, budgetPeriod: 'monthly', byokFallback: true,
+  name: '', status: 'active', assignedTier: null, budgetUsd: null, budgetPeriod: 'monthly', overBudgetAction: 'block', byokFallback: true,
 });
+
+const OVER_BUDGET_HINT: Record<TeamOverBudgetAction, string> = {
+  block:     'At the cap, refuse new requests (429) until the window resets.',
+  notify:    'A soft cap: keep serving and only send the budget alert — never block.',
+  downgrade: 'Keep serving once over budget, but force the cheapest (fast) tier to slow the spend.',
+};
 
 export function TeamsList() {
   const { data, loading, error, reload } = useApi<{ teams: TeamRow[] }>('/admin/teams');
@@ -37,7 +43,7 @@ export function TeamsList() {
   const openCreate = () => { setEditing(null); setFormErr(null); setDraft(emptyDraft()); };
   const openEdit = (t: TeamRow) => {
     setEditing(t); setFormErr(null);
-    setDraft({ name: t.name, status: t.status, assignedTier: t.assignedTier, budgetUsd: t.budgetUsd, budgetPeriod: t.budgetPeriod, byokFallback: true });
+    setDraft({ name: t.name, status: t.status, assignedTier: t.assignedTier, budgetUsd: t.budgetUsd, budgetPeriod: t.budgetPeriod, overBudgetAction: t.overBudgetAction, byokFallback: true });
   };
 
   const patchDraft = (over: Partial<TeamDraft>) => setDraft((d) => (d ? { ...d, ...over } : d));
@@ -66,12 +72,14 @@ export function TeamsList() {
   const totalKeys  = teams.reduce((n, t) => n + t.keyCount, 0);
   const totalSpend = teams.reduce((n, t) => n + t.spendUsd, 0);
 
+  const ACTION_WORD: Record<TeamOverBudgetAction, string> = { block: '', notify: 'soft cap', downgrade: 'downgrades' };
   const budgetCell = (t: TeamRow) => {
     if (t.budgetUsd == null) return <span class={s.tokenWhen}>{currency(t.spendUsd)} · no cap</span>;
     const over = t.spendUsd >= t.budgetUsd;
+    const action = ACTION_WORD[t.overBudgetAction];
     return (
       <span class={s.tokenWhen} style={over ? { color: 'var(--red)' } : undefined}>
-        {currency(t.spendUsd)} / {currency(t.budgetUsd)} <span class={s.tokenMask}>/{PERIOD_WORD[t.budgetPeriod]}</span>
+        {currency(t.spendUsd)} / {currency(t.budgetUsd)} <span class={s.tokenMask}>/{PERIOD_WORD[t.budgetPeriod]}{action ? ` · ${action}` : ''}</span>
       </span>
     );
   };
@@ -160,6 +168,13 @@ export function TeamsList() {
               </Select>
             </Field>
           </FieldRow>
+          <Field label="When the budget is reached" hint={draft.budgetUsd == null ? 'Set a budget above for this to take effect' : OVER_BUDGET_HINT[draft.overBudgetAction]}>
+            <Select value={draft.overBudgetAction} onChange={(e) => patchDraft({ overBudgetAction: (e.target as HTMLSelectElement).value as TeamOverBudgetAction })}>
+              <option value="block">Block new requests</option>
+              <option value="notify">Notify only (soft cap)</option>
+              <option value="downgrade">Downgrade to the fast tier</option>
+            </Select>
+          </Field>
           <div class={s.section} style={{ marginTop: '14px' }}>
             <Toggle
               checked={draft.byokFallback}

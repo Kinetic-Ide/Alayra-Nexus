@@ -183,6 +183,9 @@ export interface CacheStats {
 // A team groups scoped access keys and carries a per-period budget cap and a preferred routing tier.
 export type TeamTier   = 'premium' | 'standard' | 'fast';
 export type TeamPeriod = 'daily' | 'weekly' | 'monthly';
+// What a team does at its budget cap (Phase 7.10): a hard block, a soft alert-only cap, or a
+// downgrade to the cheapest tier so it keeps working at lower cost.
+export type TeamOverBudgetAction = 'block' | 'notify' | 'downgrade';
 
 // Mirrors a row of GET /admin/teams — `spendUsd` is the current period's spend, computed server-side.
 export interface TeamRow {
@@ -192,6 +195,7 @@ export interface TeamRow {
   assignedTier: TeamTier | null;
   budgetUsd:    number | null;
   budgetPeriod: TeamPeriod;
+  overBudgetAction: TeamOverBudgetAction;
   keyCount:     number;
   spendUsd:     number;
   createdAt:    string;
@@ -204,7 +208,37 @@ export interface TeamDraft {
   assignedTier: TeamTier | null;
   budgetUsd:    number | null;
   budgetPeriod: TeamPeriod;
+  overBudgetAction: TeamOverBudgetAction;
   byokFallback: boolean;
+}
+
+// ── Team Stats (GET /admin/teams/:id/stats — teamStats.service.ts) ─────────────
+// Per-team analytics over a viewing window, plus the per-key ("member") breakdown.
+export type TeamStatsPeriod = 'today' | '7d' | '30d' | '90d';
+
+export interface TeamStatsMember {
+  id: string; name: string; maskedKey: string;
+  requests: number; tokens: number; usd: number; lastUsedAt: string | null;
+}
+
+export interface TeamStats {
+  team: {
+    id: string; name: string; status: string;
+    assignedTier: TeamTier | null; overBudgetAction: TeamOverBudgetAction;
+    budgetUsd: number | null; budgetPeriod: TeamPeriod;
+    budgetSpendUsd: number;   // spend in the current budget window — what admission enforces
+    keyCount: number;
+  };
+  period: TeamStatsPeriod;
+  since:  string;
+  until:  string;
+  totals: {
+    requests: number; successes: number; errors: number; successRate: number;
+    totalTokens: number; estimatedUsd: number; avgLatencyMs: number;
+  };
+  byDay:   { date: string; requests: number; usd: number; tokens: number }[];
+  byModel: { model: string; requests: number; tokens: number; usd: number }[];
+  members: TeamStatsMember[];
 }
 
 // Mirrors a row of GET /admin/team-keys — a scoped access key, optionally assigned to a team.
