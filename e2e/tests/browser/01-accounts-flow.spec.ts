@@ -74,6 +74,11 @@ test('two-factor setup completes in a real browser', async () => {
   await page.goto('/security');
   await page.getByRole('button', { name: 'Set up two-factor' }).click();
 
+  // Enrolment leads with a scannable QR (7.15b); a real authenticator would scan it. This headless
+  // test can't, so it takes the "enter by hand" path to the base32 key — the same fallback a user
+  // without a camera would. The QR being present is asserted in the web unit suite.
+  await page.getByRole('button', { name: /enter the key by hand/i }).click();
+
   // The setup key an authenticator app would be given — base32, shown once.
   const secretEl = page.getByText(/^[A-Z2-7]{32}$/);
   await expect(secretEl).toBeVisible();

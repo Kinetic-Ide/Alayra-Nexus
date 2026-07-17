@@ -6,7 +6,8 @@ import { QrCode } from './QrCode';
 // a regression that broke the generator (or swapped in an empty <svg>) fails here rather than in a
 // user's authenticator app, where "it won't scan" gives no clue why.
 
-function svgOf(container: HTMLElement) {
+// render().container is typed Element, not HTMLElement — and querySelector lives on Element anyway.
+function svgOf(container: Element) {
   const svg = container.querySelector('svg');
   if (!svg) throw new Error('no svg rendered');
   return svg;
