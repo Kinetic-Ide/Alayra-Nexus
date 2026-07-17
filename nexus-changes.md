@@ -7,6 +7,31 @@
 
 ---
 
+**Date:** 2026-07-17 · Session 63  
+**Title:** See every signed-in device, a dashboard honest about your role, and a factory reset  
+
+**Summary:**  
+Three pieces of control an administrator expects of serious software, delivered together. **First,
+sessions:** every sign-in to the gateway is now something its owner can see and end. A new "Where
+you're signed in" panel lists each live session with the browser it came from, its network address,
+and when it was last active — with a sign-out button on every row and a "sign out everywhere else"
+for all of them at once. Ending a session takes effect on its very next request, not at some later
+expiry; suspending or removing a person now erases their sessions outright; and the dashboard's own
+Sign out button now truly ends the session on the server rather than merely forgetting it in the
+browser. **Second, honesty about roles:** the dashboard no longer offers buttons the server would
+refuse. A read-only viewer sees the whole gateway but not a single control that would change it; an
+administrator sees everything but the owner-only powers. The top bar now names the signed-in person
+and their role, and the "LIVE" indicator — previously a decorative word — now genuinely checks the
+gateway's pulse every thirty seconds and turns grey when it misses. **Third, the factory reset:** a
+deliberately heavy door for lab machines and hand-me-down deployments. It demands three different
+proofs at once — an owner's session, the installation password from the server itself, and a typed
+confirmation phrase — and then erases everything, returning the gateway to the same first-run screen
+it showed the day it was installed. Sixteen new end-to-end checks drive all of this the way a person
+would, through real browsers against a real running gateway, ending — fittingly — with the reset
+itself and the setup screen it leaves behind.
+
+---
+
 **Date:** 2026-07-17 · Session 62  
 **Title:** The gateway now tests itself the way a person would use it  
 
