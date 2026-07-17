@@ -7,6 +7,29 @@
 
 ---
 
+**Date:** 2026-07-18 · Session 65  
+**Title:** The gateway learns to tell the truth about its own address  
+
+**Summary:**  
+A small phase about a subtle lie. Every URL the gateway prints — the address developers copy into
+their tools, the sign-in address given to an identity provider — was an educated guess based on how
+each request arrived. Behind most hosting setups the guess is right; behind one common proxy
+configuration it is confidently wrong in the worst way, printing `http://` for a service that only
+speaks `https://`. The gateway cannot see encryption it did not itself perform, so guessing better
+was never the answer. Three-part fix. First, operators can now simply *tell* the gateway its public
+address with one setting, which outranks every guess and is checked at startup — a wrong value stops
+the boot with an explanation rather than quietly misprinting every address. Second, the gateway now
+discloses *where* each printed address came from: the operator's setting, the hosting proxy, or a
+raw guess. Third, the dashboard cross-examines the guess against the one witness that cannot be
+wrong: the address bar of the browser viewing it, which by definition reached the gateway
+successfully. When they agree, the Connect page says so, in green. When the operator's setting
+differs from where the admin happens to be browsing, it explains the difference. And when a mere
+guess is contradicted by the address bar, the guess loses — everything copyable follows the proven
+address, under a clear warning naming the two permanent fixes. Verified end to end against the live
+cloud deployment; the full battery now stands at 904 automated checks, all green.
+
+---
+
 **Date:** 2026-07-17 · Session 64  
 **Title:** Closing the redirect door, and three fixes from a security review  
 
