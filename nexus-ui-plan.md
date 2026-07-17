@@ -547,10 +547,16 @@ non-streamed); SSO needs a fake IdP — later, if it earns it.
    hand-rolled encoder — backend stays zero-dep, this is browser-side only).
 7. **TOTP recovery codes — download button.** Alongside "Copy all": download a file titled
    `Alayra Nexus TOTP Recovery code` (heading) + the ten codes, filename `nexus-recovery.txt`.
-8. **Model picker in Add/Edit key — opt-IN, not opt-out.** Fetching OpenRouter returns 339 models
-   rendered as delete-me chips; the user must close 338 to keep one. Replace with a searchable
-   list (search icon + filter box) where each row has a select control that animates to a clear
-   tick; **only ticked models are added**. Bulk actions (select all / none) for small providers.
+8. **Model picker in Add/Edit key — opt-IN, not opt-out — AND harvest pricing at fetch time.**
+   Fetching OpenRouter returns 339 models rendered as delete-me chips; the user must close 338 to
+   keep one. Replace with a searchable list (search icon + filter box) where each row has a select
+   control that animates to a clear tick; **only ticked models are added**. Bulk actions (select
+   all / none). **Pricing:** "Auto-fill" only matches the bundled static catalog (majors), so a
+   niche id like `kwaipilot/kat-coder-pro-v2.5` gets "No catalog match" — but OpenRouter's own
+   `/models` response CARRIES per-model pricing (and context length). Harvest it during the fetch
+   and pre-fill each selected model's prices/context automatically; the catalog stays the fallback
+   for providers whose /models is bare (OpenAI/Anthropic). This is what makes cost tracking real
+   without hand-typing 339 prices.
 9. **Teams → Access keys table.** (a) The NAME/KEY/TEAM/CREATED header row visually merges with the
    card header above — needs spacing/divider. (b) Copy button gives no feedback — every copy button
    in the product should animate + show "Copied". (c) **A "connection card" per key**: one click
