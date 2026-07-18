@@ -18,6 +18,7 @@
 [![Fastify](https://img.shields.io/badge/Fastify-v5-22c55e.svg?style=for-the-badge)](https://fastify.dev/)
 [![Node.js](https://img.shields.io/badge/Node.js-20+-f59e0b.svg?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Prisma-0ea5e9.svg?style=for-the-badge&logo=postgresql&logoColor=white)](https://prisma.io/)
+[![CLI](https://img.shields.io/badge/CLI-coming_soon-64748b.svg?style=for-the-badge&logo=gnubash&logoColor=white)](#contents)
 
 <br>
 
@@ -33,6 +34,22 @@ with full usage analytics and cost tracking built in.
 <br>
 
 </div>
+
+---
+
+## Contents
+
+**Get started** · [Why Alayra Nexus?](#why-alayra-nexus) · [Features](#features) · [Supported providers](#supported-providers) · [Architecture](#architecture) · [Quick start](#quick-start) · [Connect your tools](#connect-your-tools) · [Environment variables](#environment-variables)
+
+**How it works** · [Rate limits, explained](#rate-limits-explained) · [Resilience & routing](#resilience--routing) · [Teams & budgets](#teams--budgets) · [BYOK](#byok--bring-your-own-key) · [API reference](#api-reference) · [Dashboard](#dashboard) · [Observability](#observability)
+
+**Operate & contribute** · [Security model](#security-model) · [Accounts and roles](#accounts-and-roles) · [Roadmap](#roadmap) · [Contributing](#contributing) · [License](#license)
+
+> [!NOTE]
+> **A command-line interface is coming soon** — everything the dashboard does is
+> already an HTTP API today, so the CLI is a convenience layer over endpoints that
+> exist, not new capability. Until it lands, the [admin API](#admin-routes) and the
+> web dashboard cover every operation.
 
 ---
 
@@ -183,7 +200,29 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 
 ---
 
-### Option C — Manual Setup
+### Option C — Railway (managed cloud, no server to run)
+
+The gateway builds from the repo and serves the dashboard from a single service, so a
+managed deploy is three plugins and four variables:
+
+1. **New Project → Deploy from GitHub repo** → pick this repository. Railway builds the image.
+2. Add the **PostgreSQL** and **Redis** plugins to the project.
+3. On the gateway service → **Variables**, set (use each plugin's **private** connection URL):
+   - `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`
+   - `REDIS_URL` = `${{Redis.REDIS_URL}}`
+   - `MASTER_ENCRYPTION_KEY` = 64 hex chars — generate fresh, never reuse:
+     `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+   - `ADMIN_PASSWORD` = a strong install secret (claims the first owner account)
+4. **Settings → Networking → Generate Domain** for a public `https://…up.railway.app` URL.
+
+Railway's proxy sets `X-Forwarded-Proto`, so the dashboard's **Connect** page prints the
+correct `https://` base URL with no extra config. Behind a proxy that doesn't, pin it with
+[`PUBLIC_URL`](#environment-variables). The container runs its own migrations on boot; open
+the domain and it greets you with the owner-account setup screen.
+
+---
+
+### Option D — Manual Setup
 
 **Prerequisites:** Node.js 20+, PostgreSQL 15+, Redis 7+
 
@@ -219,15 +258,10 @@ Dashboard is live at `http://localhost:3000`
 > routing, budgets and the response cache; Postgres holds everything else. The
 > startup error names the one that's missing and the command that starts it.
 >
-> To look at the **dashboard alone**, with no database and no gateway, serve it
-> directly and click **Preview demo**:
->
-> ```bash
-> npx serve frontend
-> ```
->
-> Opening `frontend/index.html` from your filesystem will not work — browsers refuse
-> to load ES modules from a `file://` origin.
+> The dashboard is a Vite + Preact app in `web/`, built to static assets that the
+> gateway serves at `/` — there is no separate web server to run. To work on the
+> dashboard with hot reload, `cd web && npm run dev` (it proxies API calls to a
+> gateway running on `:3000`).
 
 ---
 
@@ -329,6 +363,7 @@ curl http://<your-host>:3000/v1/chat/completions \
 | `MASTER_ENCRYPTION_KEY` | Yes | 64 hex characters (32 bytes) — encrypts all stored API keys |
 | `ADMIN_PASSWORD` | Yes | The gateway's deployment secret. Claims the first owner account on first run, and authorises a full reset. **Not** a day-to-day login once an owner exists — see [Accounts and roles](#accounts-and-roles). |
 | `PORT` | No | HTTP port (default: `3000`) |
+| `PUBLIC_URL` | No | The address the outside world reaches this gateway at — pins what the **Connect** page, quick-start snippets, and SSO `redirect_uri` print. Leave unset and the gateway infers it from the proxy's `X-Forwarded-Proto` / `X-Forwarded-Host` headers, or the Host header. Set it (e.g. `https://gateway.example.com`) when a proxy forwards the host but not the scheme, so a TLS deployment would otherwise print `http://`. |
 | `LOG_LEVEL` | No | Pino log level: `info`, `debug`, `warn` (default: `info`) |
 | `ABUSE_RATE_LIMIT_MAX` | No | Requests **per credential** per window before the abuse guard trips (default: `12000`). This is DoS/abuse protection, **not** a throughput cap — see [Rate limits, explained](#rate-limits-explained). |
 | `ABUSE_RATE_LIMIT_WINDOW` | No | Abuse-guard window (default: `1 minute`) |
@@ -474,8 +509,9 @@ ever reaches a provider:
 > it by their own cost. That's the standard trade for budget caps on a streaming
 > gateway.
 
-Manage teams via the admin API (`/admin/teams`) — the dashboard Teams tab consumes
-this in an upcoming release.
+Manage teams from the dashboard's **Teams** tab — create and budget teams, issue and
+assign scoped access keys, and read per-team usage — or drive the same operations over
+the admin API (`/admin/teams`).
 
 ---
 
@@ -597,14 +633,21 @@ closes that door. See [Accounts and roles](#accounts-and-roles).
 
 ## Dashboard
 
-The built-in web dashboard (served at `/`) gives you full operational control:
+The built-in web dashboard (served at `/`, a Vite + Preact app) gives you full operational
+control — no CLI required for day-to-day work:
 
-- **Connect** — server status, endpoint URL, one-click team key generator
-- **Nexus** — provider pool overview with per-key RPM utilization meters; add, test, and ban keys without touching the CLI
-- **Models** — model registry with tier assignment, capability flags (Primary / Fallback / Vision / FIM / Tools), context window, and per-1M token pricing
-- **Team Keys** — issue scoped access tokens with configurable rate limits; view attribution in analytics
-- **Analytics** — request and token trend charts, stacked model breakdown, cost area chart, input/output comparison, team leaderboard with medals, CSV export, and custom date range picker
-- **Settings** — admin password management and system configuration
+- **Overview** — live gateway telemetry: request/token/cost trends, active keys and models, top teams, and recent admin activity by name
+- **Nexus** — provider pools and the model registry: per-key RPM utilization meters, add/test/ban keys, and each model's tier, capability flags, context window, and per-1M token pricing
+- **Connect** — the base URL (verified against your browser's own address bar), the API-key hint with one-click rotation, endpoint reference, and filled-in quick-start snippets
+- **Analytics** — request and token trend charts, stacked model breakdown, cost area chart, input/output comparison, team leaderboard, response-cache savings, CSV export, and a custom date-range picker
+- **Teams** — teams with budgets and routing tier, scoped access keys, and per-team usage stats
+- **Enterprise** — operator branding / white-labelling and per-company controls
+- **Security** — your sign-in security (password, TOTP two-factor with QR enrolment, active sessions) and admin API tokens
+- **Caching** — the optional exact-match response cache: toggle, TTL, and live hit-rate
+- **Health** — the gateway's own vitals: process, Redis, and PostgreSQL latency and readiness checks
+- **Logs** — the read-only audit trail: every state-changing action, who did it, and the result
+- **Settings** — system configuration: routing weights, guardrails, network/SSRF policy, notifications, and compliance/retention
+- **Admin** — people and roles (owner / admin / viewer), invites, single sign-on, and the factory reset
 
 ---
 
@@ -838,6 +881,7 @@ Named presets you can copy as starting points: `email`, `us-phone`, `credit-card
 - [x] Prometheus `/metrics` endpoint and optional OpenTelemetry tracing
 - [x] BYOK — team-owned provider keys with optional hard isolation
 - [x] Admin auth hardening — constant-time compare, login lockout, TOTP 2FA
+- [ ] **CLI — coming soon.** A command-line interface over the existing admin API
 - [ ] Webhook and email alerts on key failure or budget threshold
 - [ ] Custom domain / CNAME support
 - [ ] Integration test suite
@@ -848,6 +892,10 @@ Named presets you can copy as starting points: `email`, `us-phone`, `credit-card
 ## Contributing
 
 Pull requests are welcome. For major changes, open an issue first to discuss the approach.
+
+Please read [**CONTRIBUTING.md**](./CONTRIBUTING.md) for setup, the quality bar, and the PR
+process, and [**CODE_OF_CONDUCT.md**](./CODE_OF_CONDUCT.md) — participation is governed by the
+Contributor Covenant. Security issues go to [SECURITY.md](./SECURITY.md), **not** a public issue.
 
 **Start here:** [`docs/architecture/PROJECT-STRUCTURE.md`](docs/architecture/PROJECT-STRUCTURE.md)
 explains the layering rule and walks the full request path;
