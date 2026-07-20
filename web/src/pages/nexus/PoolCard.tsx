@@ -48,7 +48,16 @@ export function PoolCard({ pool, models, onChanged }: { pool: NexusPool; models:
 
       {pool.keys.length === 0
         ? <EmptyState>No keys in this pool yet</EmptyState>
-        : <div class={s.keyList}>{pool.keys.map((k) => <KeyRow key={k.id} k={k} onChanged={onChanged} />)}</div>}
+        : <div class={s.keyList}>{pool.keys.map((k) => (
+            <KeyRow
+              key={k.id}
+              k={k}
+              providerId={pool.id}
+              provider={pool.provider}
+              tier={pool.tier}
+              onChanged={onChanged}
+            />
+          ))}</div>}
 
       <PoolModels models={models} onChanged={onChanged} />
 

@@ -117,9 +117,12 @@ test('the owner invites a viewer, who accepts in their own browser', async () =>
 });
 
 test('the viewer sees the gateway but is offered nothing that would change it', async () => {
-  // Their topbar is honest about who and what they are.
-  await expect(viewerPage.getByText(VIEWER.name)).toBeVisible();
-  await expect(viewerPage.getByText('Viewer', { exact: true })).toBeVisible();
+  // Their topbar is honest about who and what they are. Scoped to the banner: since 7.15c a
+  // person's name also appears in Recent Activity rows they acted in, so a whole-page lookup is
+  // ambiguous the moment the viewer has done anything at all.
+  const viewerTopbar = viewerPage.getByRole('banner');
+  await expect(viewerTopbar.getByText(VIEWER.name)).toBeVisible();
+  await expect(viewerTopbar.getByText('Viewer', { exact: true })).toBeVisible();
 
   // Admin: the people are visible, managing them is not — and there is no Danger zone tab.
   await viewerPage.goto('/admin');

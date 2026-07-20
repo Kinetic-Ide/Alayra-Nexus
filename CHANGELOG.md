@@ -9,6 +9,15 @@ semver. The legacy ids `kinetic-nexus-1` and `nexus` remain accepted as aliases.
 
 ## [Unreleased]
 
+### Changed
+- **Editing a key no longer makes you scroll sideways to read it (Phase 7.17c).** The masked
+  credential was the dialog's *title*, where a full-length mask ran off the edge. It now sits in the
+  body as a boxed row that truncates — the mask is unreadable by design, so there was never anything
+  to gain from scrolling it — with a **Replace** button beside it. Replacing is progressive: the
+  input only appears when you ask for it, and because a new credential often means a different
+  catalogue, you can **re-fetch this provider's models** right there and merge the ones you pick
+  (with their pricing) when you save.
+
 ### Fixed
 - **Deleting a pool now takes its models with it (Phase 7.17b).** The model registry is keyed by
   provider slug with no foreign key back to the pool, so deleting a pool left its models behind —

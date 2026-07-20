@@ -17,7 +17,11 @@ function health(k: NexusKeyHealth): { tone: 'green' | 'yellow' | 'red'; label: s
   return { tone: 'green', label: 'Active', cooling, banned };
 }
 
-export function KeyRow({ k, onChanged }: { k: NexusKeyHealth; onChanged: () => void }) {
+// The pool context rides along so the edit dialog can re-fetch this provider's models after the
+// credential is replaced — a new key often means a different catalogue.
+export function KeyRow({ k, providerId, provider, tier, onChanged }: {
+  k: NexusKeyHealth; providerId: string; provider: string; tier: string; onChanged: () => void;
+}) {
   const [busy, setBusy] = useState<string | null>(null);
   const [probe, setProbe] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -69,7 +73,16 @@ export function KeyRow({ k, onChanged }: { k: NexusKeyHealth; onChanged: () => v
         </div>
       )}
 
-      {editing && <EditKeyDialog k={k} onClose={() => setEditing(false)} onSaved={onChanged} />}
+      {editing && (
+        <EditKeyDialog
+          k={k}
+          providerId={providerId}
+          provider={provider}
+          tier={tier}
+          onClose={() => setEditing(false)}
+          onSaved={onChanged}
+        />
+      )}
     </div>
   );
 }

@@ -64,6 +64,18 @@
 .keyProbe { font-size: 11.5px; color: var(--accent); }
 .keyActions { display: flex; gap: 6px; margin-left: auto; }
 
+/* ── Edit-key dialog: the stored credential, shown without a sideways scroll (P7.17c) ──
+   The full-length mask used to sit in the modal title and ran off the edge. It is now a boxed row
+   that truncates: the mask is unreadable by design, so there is nothing to gain from scrolling it. */
+.keyCurrentRow { display: flex; align-items: center; gap: 8px; }
+.keyCurrent {
+  flex: 1; min-width: 0;
+  font-family: var(--font-mono); font-size: 12.5px; color: var(--muted);
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 9px 11px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* ── Add-key dialog: key input + fetch + model chips ── */
 .keyInputRow { display: flex; gap: 8px; align-items: stretch; }
 .keyInputWrap { position: relative; flex: 1; min-width: 0; }

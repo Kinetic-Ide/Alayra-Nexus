@@ -1,22 +1,67 @@
 import { useState } from 'preact/hooks';
-import { Eye, EyeOff } from 'lucide-preact';
-import { PATCH, ApiError, type NexusKeyHealth } from '../../api';
-import { Modal, Field, Input, FieldRow, Button, FormError, FormNote } from '../../ui';
+import { Search, RefreshCw, X } from 'lucide-preact';
+import {
+  PATCH, ApiError, fetchProviderModels,
+  type NexusKeyHealth, type FetchedModel,
+} from '../../api';
+import { addModelsToRegistry, type RegistryModelInput } from '../../lib/registry';
+import { Modal, Field, FieldBlock, Input, PasswordInput, FieldRow, Button, FormError, FormNote } from '../../ui';
+import { ModelPicker } from './ModelPicker';
 import s from '../pages.module.css';
 
 // Edit an existing key: its label, the three limits, and — optionally — the credential itself.
-// Mirrors PATCH /admin/keys/:id. Leaving "Replace API key" blank keeps the stored key untouched;
-// the edit never changes the key's health (ban/cool state), which stays with the row actions.
-export function EditKeyDialog({ k, onClose, onSaved }: { k: NexusKeyHealth; onClose: () => void; onSaved: () => void }) {
+// Mirrors PATCH /admin/keys/:id.
+//
+// P7.17c: the masked credential used to sit in the modal's TITLE, where a full-length mask ran off
+// the edge and had to be scrolled sideways to read. It now lives in the body as a boxed, truncating
+// row with a Replace button beside it, and replacing is progressive: the input only appears when
+// asked for. Because a new credential often means a different catalogue, a replacement can re-fetch
+// this provider's models and merge the chosen ones (with their pricing) on save.
+export function EditKeyDialog({ k, providerId, provider, tier, onClose, onSaved }: {
+  k: NexusKeyHealth;
+  providerId: string;
+  provider: string;
+  tier: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const formId                  = `edit-key-form-${k.id}`;
   const [label, setLabel]       = useState(k.label ?? '');
   const [rpm, setRpm]           = useState(String(k.rpmLimit));
   const [tpm, setTpm]           = useState(String(k.tpmLimit));
   const [maxUsers, setMaxUsers] = useState(String(k.maxUsers));
+  const [replacing, setReplacing] = useState(false);
   const [apiKey, setApiKey]     = useState('');
-  const [showKey, setShowKey]   = useState(false);
+  const [fetched, setFetched]   = useState<FetchedModel[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [fetchGen, setFetchGen] = useState(0);
+  const [fetching, setFetching] = useState(false);
   const [busy, setBusy]         = useState(false);
   const [error, setError]       = useState<string | null>(null);
+
+  const cancelReplace = () => {
+    setReplacing(false);
+    setApiKey(''); setFetched([]); setSelected([]);
+  };
+
+  const doFetch = async () => {
+    if (!apiKey.trim()) { setError('Enter the replacement key first, then fetch its models.'); return; }
+    setFetching(true); setError(null);
+    try {
+      const r = await fetchProviderModels(providerId, apiKey.trim());
+      if (r.models.length) {
+        setFetched(r.models);
+        setSelected([]);
+        setFetchGen((g) => g + 1);
+      } else {
+        setError('No models returned for this key.');
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not fetch models.');
+    } finally {
+      setFetching(false);
+    }
+  };
 
   const submit = async (e: Event) => {
     e.preventDefault();
@@ -36,6 +81,20 @@ export function EditKeyDialog({ k, onClose, onSaved }: { k: NexusKeyHealth; onCl
         maxUsers: Math.max(1, Number.isNaN(parsedMaxUsers) ? k.maxUsers : parsedMaxUsers),
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
       });
+      if (selected.length) {
+        const byId = new Map(fetched.map((m) => [m.id, m]));
+        const inputs: RegistryModelInput[] = selected.map((id) => {
+          const m = byId.get(id);
+          return {
+            modelString: id,
+            displayName: m?.name,
+            inputCostPer1M: m?.inputCostPer1M,
+            outputCostPer1M: m?.outputCostPer1M,
+            contextWindow: m?.contextWindow,
+          };
+        });
+        await addModelsToRegistry(provider, tier, inputs);
+      }
       onSaved();
       onClose();
     } catch (err) {
@@ -47,7 +106,7 @@ export function EditKeyDialog({ k, onClose, onSaved }: { k: NexusKeyHealth; onCl
 
   return (
     <Modal
-      title={`Edit key · ${k.maskedKey}`}
+      title={k.label ? `Edit key · ${k.label}` : 'Edit key'}
       onClose={onClose}
       footer={
         <>
@@ -59,8 +118,44 @@ export function EditKeyDialog({ k, onClose, onSaved }: { k: NexusKeyHealth; onCl
       <form id={formId} onSubmit={submit}>
         {error && <FormError>{error}</FormError>}
 
+        <FieldBlock label="Credential" hint={replacing ? 'replacing' : 'stored, encrypted'}>
+          <div class={s.keyCurrentRow}>
+            <code class={s.keyCurrent}>{k.maskedKey}</code>
+            {!replacing
+              ? <Button variant="secondary" onClick={() => setReplacing(true)}><RefreshCw size={13} /> Replace</Button>
+              : <Button variant="ghost" onClick={cancelReplace}><X size={13} /> Keep current</Button>}
+          </div>
+        </FieldBlock>
+
+        {replacing && (
+          <Field label="New API key" hint="replaces the stored credential on save">
+            <div class={s.keyInputRow}>
+              <div class={s.keyInputWrap}>
+                <PasswordInput
+                  value={apiKey}
+                  placeholder="sk-…"
+                  autoFocus
+                  onInput={(e) => setApiKey((e.target as HTMLInputElement).value)}
+                />
+              </div>
+              <Button variant="secondary" onClick={doFetch} disabled={fetching || !apiKey.trim()}>
+                <Search size={13} /> {fetching ? 'Fetching…' : 'Fetch models'}
+              </Button>
+            </div>
+          </Field>
+        )}
+
+        {replacing && fetched.length > 0 && (
+          <Field
+            label={`Models (${selected.length}/${fetched.length} selected)`}
+            hint="click to select — only selected models join the registry"
+          >
+            <ModelPicker key={fetchGen} models={fetched} selected={selected} onChange={setSelected} />
+          </Field>
+        )}
+
         <Field label="Label" hint="optional">
-          <Input value={label} placeholder="primary" onInput={(e) => setLabel((e.target as HTMLInputElement).value)} autofocus />
+          <Input value={label} placeholder="primary" onInput={(e) => setLabel((e.target as HTMLInputElement).value)} />
         </Field>
 
         <FieldRow>
@@ -75,19 +170,6 @@ export function EditKeyDialog({ k, onClose, onSaved }: { k: NexusKeyHealth; onCl
           </Field>
         </FieldRow>
 
-        <Field label="Replace API key" hint="optional — leave blank to keep the current key">
-          <div class={s.keyInputWrap}>
-            <Input
-              type={showKey ? 'text' : 'password'}
-              value={apiKey}
-              placeholder="sk-…"
-              onInput={(e) => setApiKey((e.target as HTMLInputElement).value)}
-            />
-            <button type="button" class={s.keyEye} onClick={() => setShowKey((v) => !v)} aria-label={showKey ? 'Hide key' : 'Show key'}>
-              {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-            </button>
-          </div>
-        </Field>
         <FormNote>
           A replaced key is re-encrypted and re-masked; the old value is discarded. Max users caps how many
           distinct end-users this key serves per day, and applies only to requests that identify their user.

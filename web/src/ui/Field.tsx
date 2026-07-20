@@ -12,6 +12,21 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
   );
 }
 
+/**
+ * A captioned block for content that is NOT a single form control — a read-only value, or a row of
+ * buttons. Uses a <div>, not a <label>: a label with no control to point at is invalid markup, and
+ * worse, any <button> inside it inherits the caption as its accessible name (so a "Replace" button
+ * would announce itself as the whole caption text).
+ */
+export function FieldBlock({ label, hint, children }: { label: string; hint?: string; children: ComponentChildren }) {
+  return (
+    <div class={s.field}>
+      <span class={s.fieldLabel}>{label}{hint && <span class={s.fieldHint}>{hint}</span>}</span>
+      {children}
+    </div>
+  );
+}
+
 export function Input({ class: cls, ...props }: JSX.IntrinsicElements['input']) {
   return <input class={clsx(s.input, cls)} {...props} />;
 }
