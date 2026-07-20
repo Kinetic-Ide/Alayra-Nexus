@@ -148,6 +148,11 @@
   .sidebar {
     position: fixed; top: 0; left: 0; bottom: 0;
     width: var(--sidebar-w);
+    /* Docked, the sidebar is a grid track and `--surface` (3.5% white) reads as glass over the page
+       background. Floating, it sits *on top of* the content, and a 3.5% fill lets that content show
+       straight through the nav labels. A drawer has to be opaque. */
+    background: var(--surface-solid);
+    backdrop-filter: none; -webkit-backdrop-filter: none;
     /* Above the topbar (30) so it covers the full height, below the modal overlay (50) so a dialog
        still wins. */
     z-index: 40;
