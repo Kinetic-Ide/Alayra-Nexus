@@ -41,6 +41,14 @@ RUN npm ci --omit=dev \
  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
            /root/.npm /usr/local/share/.cache
 
+# Removing npm took `npx prisma …` with it, which is the command an operator reaches for when they
+# need to inspect a live container (`prisma studio`, `migrate status`, `db execute`). The CLI itself
+# is still installed and fully functional — only the launcher went away — so put a `prisma` command
+# back on PATH. `exec` so signals and the exit code pass straight through:
+#   docker exec <container> prisma studio
+RUN printf '#!/bin/sh\nexec node /app/node_modules/prisma/build/index.js "$@"\n' > /usr/local/bin/prisma \
+ && chmod +x /usr/local/bin/prisma
+
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY prisma ./prisma
@@ -49,6 +57,14 @@ COPY prisma ./prisma
 # logs a warning for a missing root, so keep this COPY in step with that static root — if they drift,
 # the container starts clean but returns 404 for the dashboard.
 COPY --from=builder /app/web/dist ./web/dist
+
+# Fail the BUILD if the Prisma CLI cannot be launched. `build/index.js` is Prisma's internal layout,
+# not a published contract, so a future version could move it — and the first thing the container
+# does at runtime is a migration, meaning a broken launcher would surface as what looks like a
+# database failure rather than a missing file. Proving the CLI answers here turns that into an
+# obvious, immediate build error instead. The dependency range is pinned to ^5 so a major
+# reorganisation cannot arrive unreviewed in the first place.
+RUN prisma --version
 
 # Drop root: run as the image's built-in unprivileged `node` user.
 RUN chown -R node:node /app
@@ -64,6 +80,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
 # an immutable image.
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 
-# Apply pending migrations, then start the server. Prisma's CLI is invoked through its own build
-# entrypoint rather than `npx` so the image needs no package manager at runtime (see above).
-CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node dist/server.js"]
+# Apply pending migrations, then start the server, through the same `prisma` shim an operator gets —
+# one definition of where the CLI lives, so the start path and the interactive path cannot drift.
+CMD ["sh", "-c", "prisma migrate deploy && node dist/server.js"]

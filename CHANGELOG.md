@@ -7,6 +7,24 @@ All notable changes to Alayra Nexus™ are documented here. The format is based 
 The `model: "alayra-nexus-1"` routing contract is the public API surface covered by
 semver. The legacy ids `kinetic-nexus-1` and `nexus` remain accepted as aliases.
 
+## [1.3.2] - 2026-07-20
+
+### Fixed
+- **`prisma` works inside the container again.** Removing npm in 1.3.1 took `npx prisma …` with it,
+  which is the command an operator reaches for when inspecting a live container (`prisma studio`,
+  `migrate status`, `db execute`). The CLI was never removed — only its launcher — so a `prisma`
+  command is back on `PATH` and `docker exec <container> prisma studio` behaves exactly as it did
+  before 1.3.1. The container's own startup goes through the same shim, so the operator path and the
+  boot path cannot drift apart.
+
+### Changed
+- **A future Prisma reshuffle now fails the build instead of the boot.** The start command reaches
+  Prisma through `build/index.js`, which is Prisma's internal layout rather than a published
+  contract. Since the first thing the container does is run a migration, a moved file would have
+  surfaced at runtime as what looked like a database failure. The image now proves the CLI answers
+  at **build** time, turning that into an immediate, obvious build error. Verified by deliberately
+  breaking the path and confirming the build fails at that step.
+
 ## [1.3.1] - 2026-07-20
 
 ### Security
