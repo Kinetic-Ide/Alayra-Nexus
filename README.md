@@ -30,6 +30,23 @@ with full usage analytics and cost tracking built in.
 
 <br>
 
+### [**Quick start**](#quick-start) · [How it compares](#how-it-compares) · [Screens](#screens) · [Connect your tools](#connect-your-tools) · [API](#api-reference)
+
+**Running, from nothing:**
+
+```bash
+curl -O https://raw.githubusercontent.com/Alayra-Systems-Pvt-Limited/Alayra-Nexus/main/docker-compose.yml
+printf 'MASTER_ENCRYPTION_KEY=%s\nADMIN_PASSWORD=change-me\n' "$(openssl rand -hex 32)" > .env
+docker compose up -d
+```
+
+Dashboard on **localhost:3000** · OpenAI-compatible API on **localhost:3000/v1**
+
+<sub>Three lines, not one: the gateway will not start without an encryption key, and generating
+one for you silently would mean every install shared a key we published.</sub>
+
+<br>
+
 > Built and maintained by **[Alayra Systems Pvt. Limited](https://github.com/Alayra-Systems-Pvt-Limited)** · Islamabad, Pakistan
 
 <br>
@@ -55,7 +72,7 @@ with full usage analytics and cost tracking built in.
 > [!NOTE]
 > **A command-line interface is coming soon** — everything the dashboard does is
 > already an HTTP API today, so the CLI is a convenience layer over endpoints that
-> exist, not new capability. Until it lands, the [admin API](#admin-routes) and the
+> exist, not new capability. Until it lands, the [admin API](#api-reference) and the
 > web dashboard cover every operation.
 
 ---
@@ -197,14 +214,19 @@ gone out of date, please open an issue — we would rather fix it than win on a 
 
 ## Supported Providers
 
-| Provider | Models |
-|---|---|
-| **Anthropic** | Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku, and all Claude variants |
-| **OpenAI** | GPT-4o, GPT-4 Turbo, GPT-3.5 Turbo, o1, o3-mini |
-| **Google** | Gemini 1.5 Pro, Gemini 1.5 Flash, Gemini 2.0 Flash |
-| **Groq** | LLaMA 3.1 405B / 70B, Mixtral 8x7B, Gemma 7B |
-| **OpenRouter** | Any model in OpenRouter's catalog via a single unified key |
-| **Custom** | Any OpenAI-compatible endpoint via configurable base URL |
+| Provider | Status | Endpoint used | Models |
+|---|---|---|---|
+| **Anthropic** | ✅ Stable | `api.anthropic.com/v1` | Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku, and all Claude variants |
+| **OpenAI** | ✅ Stable | `api.openai.com/v1` | GPT-4o, GPT-4 Turbo, GPT-3.5 Turbo, o1, o3-mini |
+| **Google** | ✅ Stable | Gemini's OpenAI-compatible API | Gemini 1.5 Pro, Gemini 1.5 Flash, Gemini 2.0 Flash |
+| **Groq** | ✅ Stable | `api.groq.com/openai/v1` | Llama 3.3 70B, Llama 3.1 405B / 70B, Mixtral 8x7B, Gemma |
+| **OpenRouter** | ✅ Stable | `openrouter.ai/api/v1` | Every model in OpenRouter's catalogue — 340+ behind one key |
+| **Custom** | ✅ Stable | Whatever you configure | Any OpenAI-compatible endpoint: base URL, auth header, and model-id path are all settable |
+| Azure OpenAI · Bedrock · Vertex | ⚪ Via **Custom** | your endpoint | Reachable today through the Custom provider if the endpoint speaks OpenAI's schema; first-class adapters are on the [roadmap](#roadmap) |
+
+**"Stable" means a default base URL ships for it and its keys route, pool, fail over and cost-track
+like any other.** Anthropic additionally gets a native `/v1/messages` endpoint, so Claude Code and
+the Anthropic SDKs work unchanged.
 
 ---
 
@@ -284,13 +306,17 @@ docker run -d --name alayra-nexus -p 3000:3000 \
 
 Pin a version for production (e.g. `:1.3.2`) rather than `:latest`.
 
-### Option B — Docker Compose (brings its own Postgres + Redis)
+<details>
+<summary><b>Option B — Docker Compose (brings its own Postgres + Redis)</b></summary>
+
 
 Nothing to clone and nothing to compile: Compose downloads the published image and
 starts Postgres and Redis alongside it.
 
 ```bash
 curl -O https://raw.githubusercontent.com/Alayra-Systems-Pvt-Limited/Alayra-Nexus/main/docker-compose.yml
+
+</details>
 
 # Two secrets. Keep MASTER_ENCRYPTION_KEY safe — without it your stored
 # provider keys can never be decrypted again.
@@ -329,7 +355,9 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 
 ---
 
-### Option C — Railway (managed cloud, no server to run)
+<details>
+<summary><b>Option C — Railway (managed cloud, no server to run)</b></summary>
+
 
 The gateway builds from the repo and serves the dashboard from a single service, so a
 managed deploy is three plugins and four variables:
@@ -349,9 +377,11 @@ correct `https://` base URL with no extra config. Behind a proxy that doesn't, p
 [`PUBLIC_URL`](#environment-variables). The container runs its own migrations on boot; open
 the domain and it greets you with the owner-account setup screen.
 
----
+</details>
 
-### Option D — Manual Setup
+<details>
+<summary><b>Option D — Manual setup (from source)</b></summary>
+
 
 **Prerequisites:** Node.js 20+, PostgreSQL 15+, Redis 7+
 
@@ -362,6 +392,9 @@ cd alayra-nexus
 npm install
 
 cp .env.example .env
+
+</details>
+
 # Edit .env with your values
 
 # Generate a secure MASTER_ENCRYPTION_KEY (run this once and save it):
@@ -539,7 +572,9 @@ requests are allowed through rather than blocked.
 
 ## Resilience & routing
 
-### Circuit breaker
+<details>
+<summary><b>Circuit breaker</b></summary>
+
 
 Every key in the pool sits behind a per-key circuit breaker, so one failing provider
 never keeps taking traffic it can't serve. The breaker state lives in Redis, so it stays
@@ -556,7 +591,11 @@ consistent across every Nexus replica.
 Any success at any point resets the streak to zero. Cooling and banned keys are reflected
 live in the dashboard; the admin **unban** action clears the breaker state as well.
 
-### Cache-aware sticky routing
+</details>
+
+<details>
+<summary><b>Cache-aware sticky routing</b></summary>
+
 
 Provider prompt caching only pays off when a conversation's follow-up turns hit the **same**
 upstream key. Naïve round-robin (always pick the least-recently-used key) throws that cache
@@ -569,7 +608,11 @@ away on every turn. Nexus instead pins a conversation to the key that last serve
   cooling, banned, or out of headroom.
 - Sticky-routed responses carry an **`X-Nexus-Sticky: true`** header.
 
-### Cost-aware routing (optional)
+</details>
+
+<details>
+<summary><b>Cost-aware routing (optional)</b></summary>
+
 
 Within a tier, when several providers are healthy and in-headroom, Nexus can bias toward the
 **cheaper** one using the per-token pricing already in your model registry — so "route to the
@@ -593,7 +636,11 @@ are ranked last but never dropped.
 > named virtual models (`nexus-fast`, `nexus-premium`, …) is intentionally out of scope for
 > now so the routing contract stays simple for early adopters.
 
-### Response caching (optional)
+</details>
+
+<details>
+<summary><b>Response caching (optional)</b></summary>
+
 
 Distinct from cache-aware *routing* above (which reuses the **provider's** prompt cache),
 this caches the **response itself**. When enabled, an **exact-match** request — same model,
@@ -615,7 +662,7 @@ entirely**: a real **$0** call. Off by default; turn it on under *Settings → R
 > Semantic caching (nearest-neighbour on prompt embeddings) is a heavier, opt-in
 > extension planned on top of this exact-match layer — not enabled today.
 
----
+</details>
 
 ## Teams & budgets
 
@@ -692,7 +739,9 @@ Watch adoption with the `nexus_byok_requests_total{result}` metric — a sustain
 
 ## API Reference
 
-### Proxy Endpoints
+<details>
+<summary><b>Proxy endpoints</b></summary>
+
 
 ```
 POST /v1/chat/completions   OpenAI Chat Completions (streaming + non-streaming)
@@ -728,7 +777,11 @@ curl http://localhost:3000/v1/chat/completions \
 
 **Streaming** (`"stream": true`) is fully supported — server-sent events pass through from the upstream provider with no buffering.
 
-### Admin Routes
+</details>
+
+<details>
+<summary><b>Admin routes</b></summary>
+
 
 | Method | Endpoint | Description |
 |---|---|---|
@@ -758,7 +811,7 @@ or an admin API token for scripts and CI. On a gateway that has not been claimed
 `ADMIN_PASSWORD` is still accepted, exactly as it was before Phase 7.13a; creating an owner account
 closes that door. See [Accounts and roles](#accounts-and-roles).
 
----
+</details>
 
 ## Dashboard
 
@@ -812,7 +865,9 @@ scrape_configs:
       - targets: ['your-host:3000']
 ```
 
-### Distributed tracing (optional)
+<details>
+<summary><b>Distributed tracing (optional)</b></summary>
+
 
 The gateway → provider call is wrapped in an OpenTelemetry span. It's a **no-op by
 default** (zero overhead); to collect traces, run the app with a standard OTel SDK and
@@ -823,7 +878,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://your-collector:4318 \
 node --require @opentelemetry/auto-instrumentations-node/register dist/server.js
 ```
 
----
+</details>
 
 ## Security Model
 
@@ -886,7 +941,9 @@ wins, so an identity provider's groups cannot silently re-promote someone.
 for a lost authenticator. Lose both, and the documented way back is a full reset of the gateway,
 which erases everything in it.
 
-### Admin authentication
+<details>
+<summary><b>Admin authentication — sessions, 2FA, lockout</b></summary>
+
 
 Signing in `POST`s your email and password (and, once enrolled, an authenticator code) to
 `/admin/login` and receives a **session token**. The dashboard stores only that token;
@@ -902,6 +959,9 @@ to be a single secret for the whole gateway, shared by everyone who knew the pas
 **Security → Sign-in**, or via the API:
 
 ```bash
+
+</details>
+
 # 1. Enrol — returns a secret and an otpauth:// URI for your authenticator app
 curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:3000/admin/auth/totp/enrol
 
@@ -938,7 +998,9 @@ authenticator code are indistinguishable in the response, so the login form cann
 used as a password oracle. `nexus_admin_login_total{result}` tracks
 success / invalid / totp_required / locked_out.
 
-### SSRF protection
+<details>
+<summary><b>SSRF protection</b></summary>
+
 
 Because the gateway makes outbound calls to operator-configured provider base URLs, an
 unrestricted URL could be pointed at internal-only addresses — cloud metadata
@@ -963,7 +1025,11 @@ Running a **local model** (Ollama, LM Studio, a private gateway)? Allow just tha
 Allowlist entries are `host` or `host:port` (a bare host permits any port). The env values
 form a read-only baseline; hosts added in the dashboard are merged on top.
 
-### Content guardrails (optional)
+</details>
+
+<details>
+<summary><b>Content guardrails (optional)</b></summary>
+
 
 Guardrails are an **opt-in** content filter for prompts and responses — redact PII, or
 block banned content and prompt-injection patterns. They are **off by default**; a fresh
@@ -996,7 +1062,7 @@ Named presets you can copy as starting points: `email`, `us-phone`, `credit-card
 > Your `.env` file contains `MASTER_ENCRYPTION_KEY` and `ADMIN_PASSWORD`.  
 > Never commit it. This repository's `.gitignore` excludes `.env` by default.
 
----
+</details>
 
 ## Roadmap
 
