@@ -66,10 +66,38 @@ jobs:
             || { echo "::error::index.html does not reference the sub-path asset base"; exit 1; }
           echo "demo built: $(du -sh docs/demo | cut -f1)"
 
+      # The uploaded artifact's root BECOMES the site root (https://<org>.github.io/<repo>/), so
+      # uploading docs/demo directly published the demo at /Alayra-Nexus/ while its assets were
+      # built for /Alayra-Nexus/demo/ — the page loaded and every script 404'd. Staging it under a
+      # demo/ directory makes the served path match the base the bundle was built with, and leaves
+      # the site root free for a docs site later.
+      - name: Stage the site so the demo is served at /demo/
+        run: |
+          mkdir -p _site/demo
+          cp -r docs/demo/. _site/demo/
+          touch _site/.nojekyll
+          # Pages serves 404.html from the SITE root, not from the nearest directory, so the SPA
+          # fallback has to live there or a refresh on /demo/teams would return Pages' own 404 page.
+          # The app's asset URLs are absolute (/Alayra-Nexus/demo/assets/…), so it boots correctly
+          # no matter which path served it.
+          cp docs/demo/404.html _site/404.html
+          # Anyone who lands on the Pages root should end up somewhere useful rather than a 404.
+          cat > _site/index.html <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8">
+          <title>Alayra Nexus — demo</title>
+          <meta http-equiv="refresh" content="0; url=./demo/">
+          <link rel="canonical" href="./demo/">
+          <p>Redirecting to the <a href="./demo/">Alayra Nexus demo</a>…</p>
+          HTML
+          test -f _site/demo/index.html || { echo "::error::staging did not produce _site/demo/index.html"; exit 1; }
+          test -f _site/demo/404.html   || { echo "::error::staging did not produce _site/demo/404.html"; exit 1; }
+          echo "staged: $(find _site -type f | wc -l) files"
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/demo
+          path: _site
 
   deploy:
     name: Deploy to Pages
