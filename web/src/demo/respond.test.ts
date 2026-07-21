@@ -134,20 +134,18 @@ describe('demo responder — every endpoint the dashboard calls', () => {
     '/admin/notifications/read-all', '/admin/invites/accept',
   ]);
 
-  it('answers every GET endpoint referenced in the dashboard source', async () => {
-    const { readFileSync, readdirSync, statSync } = await import('node:fs');
-    const { join } = await import('node:path');
-
-    const walk = (dir: string): string[] => readdirSync(dir).flatMap((entry) => {
-      const full = join(dir, entry);
-      if (statSync(full).isDirectory()) return walk(full);
-      return /\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry) ? [full] : [];
-    });
+  // Sources are read with Vite's own `import.meta.glob`, not node:fs. Anything using `process` or
+  // `readFileSync` here would be a Node global inside a file tsconfig checks, and `types` is pinned
+  // to browser typings on purpose — that mismatch typechecks locally (TypeScript finds @types/node
+  // in the ROOT project) and fails in CI, which installs only web/. Keeping the guard browser-only
+  // is what stops `process` drifting into a component, so the test bends, not the config.
+  it('answers every GET endpoint referenced in the dashboard source', () => {
+    const modules = import.meta.glob('../**/*.{ts,tsx}', { query: '?raw', import: 'default', eager: true });
 
     const paths = new Set<string>();
-    for (const file of walk(join(process.cwd(), 'src'))) {
-      const src = readFileSync(file, 'utf8');
-      for (const m of src.matchAll(/'(\/admin\/[a-zA-Z0-9/_.-]*)'/g)) paths.add(m[1]);
+    for (const [file, source] of Object.entries(modules)) {
+      if (/\.test\.tsx?$/.test(file)) continue;   // fixtures in tests are not endpoints the app calls
+      for (const m of String(source).matchAll(/'(\/admin\/[a-zA-Z0-9/_.-]*)'/g)) paths.add(m[1]);
     }
 
     expect(paths.size).toBeGreaterThan(20); // the scan found something; a silent zero would pass vacuously
