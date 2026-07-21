@@ -25,10 +25,12 @@ const here    = dirname(fileURLToPath(import.meta.url));
 const webRoot = join(here, '..');
 const outDir  = join(webRoot, '..', 'docs', 'demo');
 
-const env = { ...process.env, VITE_DEMO: '1' };
-
-const build = spawnSync('npx', ['vite', 'build'], {
-  cwd: webRoot, env, stdio: 'inherit', shell: process.platform === 'win32',
+// `--mode demo` does two things at once: vite.config.ts switches the asset base and output
+// directory on it, and Vite loads .env.demo, which is where VITE_DEMO=1 comes from. Passing the
+// variable through the environment instead would work here but not in `vite dev`, and would leave
+// the config reading a Node global it cannot typecheck against (see vite.config.ts).
+const build = spawnSync('npx', ['vite', 'build', '--mode', 'demo'], {
+  cwd: webRoot, stdio: 'inherit', shell: process.platform === 'win32',
 });
 if (build.status !== 0) process.exit(build.status ?? 1);
 
