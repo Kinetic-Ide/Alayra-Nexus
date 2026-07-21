@@ -109,6 +109,28 @@ jobs:
       - name: Audit UI production dependencies
         run: npm audit --omit=dev --audit-level=low
 
+      # The published demo is a build artefact committed to docs/demo, which means it can silently
+      # fall behind the dashboard it is supposed to be showing — and a demo that misrepresents the
+      # product is worse than no demo. Rebuilding here and diffing makes staleness a failed check
+      # with an obvious fix, instead of something a visitor notices first.
+      - name: Rebuild the static demo
+        run: npm run build:demo
+      # ADVISORY FOR NOW, deliberately. The rebuild is byte-identical when repeated on one machine,
+      # but whether a Linux runner reproduces a tree built on another OS is unproven — and a gate
+      # that turns red for a reason unrelated to the change in front of it blocks every pull request
+      # and teaches people to ignore CI. Promote to blocking (drop continue-on-error) once this step
+      # has been seen to pass on a run where docs/demo really was current.
+      - name: Warn if the committed demo is out of date
+        continue-on-error: true
+        working-directory: .
+        run: |
+          if ! git diff --quiet -- docs/demo; then
+            echo "::warning::docs/demo differs from a fresh build. If the dashboard changed, run 'npm run build:demo' in web/ and commit the result."
+            git diff --stat -- docs/demo
+            exit 1
+          fi
+          echo "docs/demo matches a fresh build."
+
   # End-to-end proof (P7.15): the compiled gateway, a real PostgreSQL, a real Redis, and a
   # real browser. Everything above tests our code with stand-ins; this job is the one that
   # would have caught the bugs humans kept finding by clicking — /v1/v1 on the Connect page,

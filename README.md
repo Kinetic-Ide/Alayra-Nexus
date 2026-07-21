@@ -30,7 +30,10 @@ with full usage analytics and cost tracking built in.
 
 <br>
 
-### [**Quick start**](#quick-start) · [How it compares](#how-it-compares) · [Screens](#screens) · [Connect your tools](#connect-your-tools) · [API](#api-reference)
+### [**▶ Live demo**](https://alayra-systems-pvt-limited.github.io/Alayra-Nexus/demo/) · [Quick start](#quick-start) · [How it compares](#how-it-compares) · [Screens](#screens) · [Connect your tools](#connect-your-tools) · [API](#api-reference)
+
+<sub>The demo is the real dashboard, signed in as a viewer, reading a frozen snapshot of a gateway
+seeded with synthetic traffic. No sign-up, nothing to install, and nothing you do there is saved.</sub>
 
 **Running, from nothing:**
 
@@ -63,7 +66,7 @@ one for you silently would mean every install shared a key we published.</sub>
 
 ## Contents
 
-**Get started** · [Why Alayra Nexus?](#why-alayra-nexus) · [Features](#features) · [Screens](#screens) · [How it compares](#how-it-compares) · [Supported providers](#supported-providers) · [Architecture](#architecture) · [Quick start](#quick-start) · [Connect your tools](#connect-your-tools) · [Environment variables](#environment-variables)
+**Get started** · [Live demo](https://alayra-systems-pvt-limited.github.io/Alayra-Nexus/demo/) · [Why Alayra Nexus?](#why-alayra-nexus) · [Features](#features) · [Screens](#screens) · [How it compares](#how-it-compares) · [Supported providers](#supported-providers) · [Architecture](#architecture) · [Quick start](#quick-start) · [Connect your tools](#connect-your-tools) · [Environment variables](#environment-variables)
 
 **How it works** · [Rate limits, explained](#rate-limits-explained) · [Resilience & routing](#resilience--routing) · [Teams & budgets](#teams--budgets) · [BYOK](#byok--bring-your-own-key) · [API reference](#api-reference) · [Dashboard](#dashboard) · [Observability](#observability)
 

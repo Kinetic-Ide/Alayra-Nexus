@@ -1,0 +1,83 @@
+name: Demo (GitHub Pages)
+
+# Publishes the static demo at /Alayra-Nexus/demo/.
+#
+# The demo is built from the dashboard's own source with VITE_DEMO=1, which swaps the API client for
+# a frozen dataset and signs the visitor in as a viewer — so it is the real console, not a mock-up,
+# and it cannot be changed by whoever opens it.
+#
+# It is built HERE rather than published from the committed docs/demo, so what goes live is always a
+# fresh build of the current dashboard. The committed copy still exists for forks that would rather
+# serve it without running a build.
+on:
+  push:
+    branches: [main]
+    # Only rebuild when something that shapes the demo changed. A README typo should not redeploy.
+    paths:
+      - 'web/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+# Least-privilege: read the repo, write only the Pages deployment.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; queue rather than cancel, so a merged change is not dropped by a
+# later one that happens to finish first.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the demo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+        working-directory: web
+
+      # The demo is the product's public face, so it does not go live on a build that fails the
+      # dashboard's own checks.
+      - run: npm run typecheck
+        working-directory: web
+      - run: npm test
+        working-directory: web
+
+      - name: Build the static demo
+        run: npm run build:demo
+        working-directory: web
+
+      # Fail loudly rather than deploying an empty site: a 404 where the README promises a demo is
+      # worse than no button at all.
+      - name: Verify the build produced a site
+        run: |
+          test -f docs/demo/index.html || { echo "::error::docs/demo/index.html is missing"; exit 1; }
+          test -f docs/demo/404.html   || { echo "::error::docs/demo/404.html is missing (SPA deep links would break)"; exit 1; }
+          grep -q '/Alayra-Nexus/demo/assets/' docs/demo/index.html \
+            || { echo "::error::index.html does not reference the sub-path asset base"; exit 1; }
+          echo "demo built: $(du -sh docs/demo | cut -f1)"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/demo
+
+  deploy:
+    name: Deploy to Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

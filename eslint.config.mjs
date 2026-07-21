@@ -9,7 +9,10 @@ export default tseslint.config(
     // (SVG/PNG assets plus a standalone CommonJS render script). The dashboard app
     // under web/ is a separate package with its own ESLint config and CI job, so it is
     // ignored here wholesale (otherwise its built bundle in web/dist gets linted).
-    ignores: ['dist/**', 'web/**', 'e2e/**', 'node_modules/**', 'coverage/**', 'prisma/migrations/**', 'brand/**'],
+    // `docs/**` covers the committed static demo (docs/demo): it is minified build output from the
+    // dashboard, whose own source is linted in web/. Linting a bundle reports hundreds of errors
+    // about generated code nobody wrote and nobody can fix.
+    ignores: ['dist/**', 'web/**', 'e2e/**', 'node_modules/**', 'coverage/**', 'prisma/migrations/**', 'brand/**', 'docs/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
