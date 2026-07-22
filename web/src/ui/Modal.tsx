@@ -1,5 +1,5 @@
 import type { ComponentChildren } from 'preact';
-import { useEffect, useId } from 'preact/hooks';
+import { useEffect, useId, useRef } from 'preact/hooks';
 import { X } from 'lucide-preact';
 import s from './ui.module.css';
 
@@ -24,17 +24,43 @@ interface Props {
  */
 export function Modal({ title, onClose, children, footer }: Props) {
   const titleId = useId();
+  const dialogRef  = useRef<HTMLDivElement | null>(null);
+  const restoreRef = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
+    // Move focus into the dialog on open and put it back on close. Without this a keyboard or
+    // screen-reader user stays parked on whatever button opened the dialog, tabbing through the
+    // page behind it while the dialog claims to be modal.
+    restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.focus();
+
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+      restoreRef.current?.focus();
+    };
   }, [onClose]);
 
   return (
-    <div class={s.modalOverlay} onClick={onClose}>
-      <div class={s.modal} role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
+    // The overlay stays a div with role="presentation", NOT a <button> as one review suggested:
+    // a button may not contain interactive content, and this one wraps a whole dialog of inputs —
+    // that markup is invalid and browsers/AT handle it unpredictably. Backdrop click is a
+    // mouse-only convenience; the keyboard route is Escape (above) and the labelled close button,
+    // both of which already work, so no affordance is lost.
+    <div class={s.modalOverlay} role="presentation" onClick={onClose}>
+      <div
+        ref={dialogRef}
+        class={s.modal}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div class={s.modalHead}>
           <h2 id={titleId} class={s.modalTitle}>{title}</h2>
           <button type="button" class={s.modalClose} onClick={onClose} aria-label="Close"><X size={16} /></button>

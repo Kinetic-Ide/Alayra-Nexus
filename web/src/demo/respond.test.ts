@@ -160,6 +160,48 @@ describe('demo responder — every endpoint the dashboard calls', () => {
   });
 });
 
+// Answering is not enough — the answer has to be the RIGHT SHAPE.
+//
+// /admin/config once returned `{publicUrl, source}` while the Connect page reads `data.baseUrl`.
+// demoRespond answered, the coverage test above passed, and the page still broke: the TypeError
+// landed mid-render, so Connect sat on its "Loading connection…" frame forever with an empty
+// console. These assert the fields whose absence kills a render rather than merely blanking a cell.
+describe('demo responder — response shapes', () => {
+  const REQUIRED: Array<[string, string[]]> = [
+    ['/admin/config',           ['baseUrl', 'baseUrlSource', 'apiKeySet', 'isFirstRun']],
+    ['/admin/overview',         ['stats', 'series7d', 'topModels', 'topKeys', 'recentLogs']],
+    ['/admin/nexus/overview',   ['summary', 'routing', 'tiers']],
+    ['/admin/health/overview',  ['status', 'summary', 'checks', 'ready']],
+    ['/admin/models',           ['models', 'capabilities']],
+    ['/admin/teams',            ['teams']],
+    ['/admin/team-keys',        ['keys']],
+    ['/admin/users',            ['users', 'roles']],
+    ['/admin/audit',            ['entries']],
+    ['/admin/notifications',    ['notifications', 'unreadCount']],
+  ];
+
+  it.each(REQUIRED)('%s carries the fields its page reads', (path, fields) => {
+    const res = demoRespond<Record<string, unknown>>('GET', path);
+    for (const f of fields) expect(res, `${path} is missing "${f}"`).toHaveProperty(f);
+  });
+
+  // The Connect page derives its snippets from this; a non-string would throw the same way.
+  it('serves a usable API base URL', () => {
+    const cfg = demoRespond<{ baseUrl: string }>('GET', '/admin/config');
+    expect(typeof cfg.baseUrl).toBe('string');
+    expect(cfg.baseUrl).toMatch(/^https?:\/\/.+\/v1$/);
+  });
+
+  // A demo whose Health page says the gateway is down misrepresents a working product. The fixture
+  // is captured from real probes (scripts/demo/buildFixtures.ts takes samples first); if that
+  // capture regresses to the empty-ring-buffer default, every check reads "down" and this catches it.
+  it('shows a healthy gateway on the Health page', () => {
+    const h = demoRespond<{ status: string; checks: { id: string; status: string }[] }>('GET', '/admin/health/overview');
+    expect(h.status).toBe('healthy');
+    for (const c of h.checks) expect(c.status, `check "${c.id}" is ${c.status}`).toBe('healthy');
+  });
+});
+
 describe('demo responder — gaps', () => {
   // Loud, not silent: an unfixtured path should be obvious in development rather than rendering an
   // empty panel in the published demo.

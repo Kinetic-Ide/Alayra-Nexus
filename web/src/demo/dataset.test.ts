@@ -34,15 +34,24 @@ describe('demo dataset — safe to publish', () => {
     for (const k of keys) {
       // A mask, by construction, contains the bullet the UI renders and no full credential.
       expect(k.maskedKey).toContain('•');
-      expect(Object.keys(k)).not.toContain('encryptedKey');
+      // Every secret field, not just encryptedKey: a key object is the most likely place for one to
+      // appear, so check the whole list here rather than trusting the whole-file scan alone.
+      for (const field of SECRET_FIELDS) expect(Object.keys(k)).not.toContain(field);
     }
   });
 
   // A live provider credential is long and unbroken; a mask, an id and a slug are not. Anything
   // matching this shape in a published file deserves a human look before it ships.
+  // The character class covers standard base64 and JWTs too (`. / + =`), not just base64url — a
+  // GCP service-account key or a signed token would otherwise be split at its separators and slip
+  // under the length bar.
   it('contains no credential-shaped strings', () => {
-    const suspicious = json.match(/[A-Za-z0-9_-]{45,}/g) ?? [];
+    const suspicious = json.match(/[A-Za-z0-9_./+=-]{45,}/g) ?? [];
     expect(suspicious).toEqual([]);
+  });
+
+  it('carries no JWT-shaped strings', () => {
+    expect(json).not.toMatch(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/);
   });
 
   it('carries no email addresses', () => {

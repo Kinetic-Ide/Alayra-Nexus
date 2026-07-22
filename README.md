@@ -30,7 +30,7 @@ with full usage analytics and cost tracking built in.
 
 <br>
 
-[![Open the live demo](https://img.shields.io/badge/▶%20Live%20demo-open%20the%20dashboard-6d28d9?style=for-the-badge)](https://alayra-systems-pvt-limited.github.io/Alayra-Nexus/demo/)
+<a href="https://alayra-systems-pvt-limited.github.io/Alayra-Nexus/demo/" target="_blank" rel="noopener"><img src="https://img.shields.io/badge/▶%20Live%20demo-open%20the%20dashboard-6d28d9?style=for-the-badge" alt="Open the live demo"/></a>
 
 **[Quick start](#quick-start)** · [How it compares](#how-it-compares) · [Screens](#screens) · [Connect your tools](#connect-your-tools) · [API](#api-reference)
 

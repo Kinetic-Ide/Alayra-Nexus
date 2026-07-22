@@ -110,7 +110,13 @@
 .modalFoot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--border); }
 @keyframes nxFade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes nxRise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .modalOverlay, .modal { animation: none; } }
+/* Reduced motion means transitions too, not just keyframes: the hover lift on a stat card and the
+   press-down on a button are movement a motion-sensitive reader asked not to see. */
+@media (prefers-reduced-motion: reduce) {
+  .modalOverlay, .modal { animation: none; }
+  .btn, .stat, .statClickable, .toggle, .input, .modalOverlay, .modal { transition: none; }
+  .btn:active, .statClickable:hover { transform: none; }
+}
 
 /* ── Form field ── */
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }

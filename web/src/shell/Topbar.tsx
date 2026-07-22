@@ -36,6 +36,15 @@ export function Topbar({ onMenu, navOpen = false }: { onMenu?: () => void; navOp
   const [alive, setAlive] = useState<boolean | null>(null);
   useEffect(() => {
     let stopped = false;
+    // The static demo has no gateway to probe. This is a plain fetch rather than an api() call, so
+    // it slips past the demo's interception entirely and would resolve against the Pages host —
+    // /health there is a 404, and the console showed OFFLINE about a snapshot taken from a gateway
+    // that was up. The snapshot is of a live gateway, so say so and skip the network.
+    if (import.meta.env.VITE_DEMO === '1') {
+      setAlive(true);
+      return;
+    }
+
     const probe = async () => {
       try {
         // Plain fetch, not api(): /health is unauthenticated, and a mid-outage failure here must
@@ -72,7 +81,9 @@ export function Topbar({ onMenu, navOpen = false }: { onMenu?: () => void; navOp
       <div class={s.account}>
         <span class={s.avatar}>{initial}</span>
         <span class={s.accountName}>{name}</span>
-        {identity && <span class={s.roleChip}>{ROLE_LABEL[identity.role]}</span>}
+        {/* Fall back to the raw role: a server that gains a role before the dashboard knows it
+            should show something, not an empty chip. */}
+        {identity && <span class={s.roleChip}>{ROLE_LABEL[identity.role] ?? identity.role}</span>}
         <button type="button" class={s.iconChip} aria-label="Sign out" title="Sign out" onClick={signOut}><LogOut size={16} /></button>
       </div>
     </header>

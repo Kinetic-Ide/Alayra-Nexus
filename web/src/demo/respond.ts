@@ -134,7 +134,18 @@ export function demoRespond<T>(method: string, path: string): T {
     case '/admin/settings/guardrails':  return { enabled: false, rules: [] } as T;
     case '/admin/settings/ssrf':        return { allowPrivateHosts: false, allowlist: [] } as T;
     case '/admin/branding':             return { companyName: null, logoDataUri: null } as T;
-    case '/admin/config':               return { publicUrl: 'https://nexus.example.com', source: 'demo' } as T;
+    // Must match GatewayConfig exactly. It did not, once: this returned `{publicUrl, source}`,
+    // Connect read `data.baseUrl.replace(…)`, and the resulting TypeError killed the render
+    // mid-flight — leaving the page stuck on its "Loading connection…" frame with nothing in the
+    // console. Inventing a response shape instead of copying the route's is how that happens.
+    case '/admin/config':
+      return {
+        baseUrl:       'https://nexus.example.com/v1',
+        baseUrlSource: 'env',
+        apiKeySet:     true,
+        apiKeyMasked:  'nxs-••••••••4f2a',
+        isFirstRun:    false,
+      } as T;
     case '/admin/invites':              return { invites: [] } as T;
 
     // The people the audit trail already names, so the Admin page and the log tell the same story.

@@ -5,6 +5,11 @@ import { href, appPath } from '../base';
 import { useBranding } from '../hooks/useBranding';
 import s from './shell.module.css';
 
+// The product's own name and vendor line. Named once so a rename is one edit, not a hunt through
+// three string literals that must agree.
+const PRODUCT_NAME  = 'Alayra Nexus';
+const VENDOR_SUFFIX = 'by Alayra Systems';
+
 function NavLink({ section, activeId }: { section: Section; activeId?: string }) {
   const Icon = section.icon;
   return (
@@ -31,7 +36,7 @@ export function Sidebar({ open = false }: { open?: boolean }) {
   // than disappearing, so a white-labelled console still says what it is. Unset → the product's own
   // mark and name, exactly as before.
   const brand = useBranding();
-  const name  = brand.companyName || 'Alayra Nexus';
+  const name  = brand.companyName || PRODUCT_NAME;
 
   return (
     <aside class={clsx(s.sidebar, open && s.sidebarOpen)}>
@@ -39,7 +44,7 @@ export function Sidebar({ open = false }: { open?: boolean }) {
         <img class={s.brandMark} src={brand.logoDataUri || href('/logo.svg')} width="26" height="26" alt="" />
         <span>
           <div class={s.brandText}>{name}</div>
-          <div class={s.brandBy}>{brand.companyName ? 'Alayra Nexus' : 'by Alayra Systems'}</div>
+          <div class={s.brandBy}>{brand.companyName ? PRODUCT_NAME : VENDOR_SUFFIX}</div>
         </span>
       </a>
 
@@ -54,7 +59,7 @@ export function Sidebar({ open = false }: { open?: boolean }) {
       </nav>
 
       <div class={s.navSpacer} />
-      <div class={s.navFoot}>Alayra Nexus™ · v1.3.2</div>
+      <div class={s.navFoot}>{PRODUCT_NAME}™ · v1.3.2</div>
     </aside>
   );
 }

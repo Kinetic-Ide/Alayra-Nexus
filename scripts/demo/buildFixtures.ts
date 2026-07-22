@@ -36,7 +36,7 @@ import { getTeamStats } from '../../src/services/teamStats.service';
 import { getModelRegistry } from '../../src/services/model.service';
 import { queryAuditLogs } from '../../src/services/audit.service';
 import { listNotifications } from '../../src/services/notificationFeed.service';
-import { getHealthOverview } from '../../src/services/healthSampler.service';
+import { getHealthOverview, takeSample } from '../../src/services/healthSampler.service';
 import { getCacheStats, getCacheConfigForUI } from '../../src/services/cache.service';
 import { getCurrentSpend } from '../../src/services/budget.service';
 import { CAPABILITIES } from '../../src/lib/modelSelect';
@@ -160,7 +160,21 @@ async function main() {
   const teamKeys = await attempt('team keys', () => buildTeamKeys(), []);
   console.log(`  team keys       ${teamKeys.length}`);
 
+  // getHealthOverview() reads an in-memory ring buffer that a background sampler fills inside the
+  // long-lived gateway process. This script is short-lived, so that buffer starts empty and every
+  // `?? false` in the overview defaults to DOWN — which is how the demo first shipped claiming
+  // "Redis is not responding" about a gateway that was perfectly healthy.
+  //
+  // Taking real samples here fixes it honestly: these are genuine PING and SELECT 1 round-trips
+  // against the same Redis and Postgres every other aggregate was read from. A few spaced samples
+  // also give the sparkline something truthful to draw.
+  for (let i = 0; i < 5; i++) {
+    await attempt(`health sample ${i + 1}`, () => takeSample(), null);
+  }
   const health = await attempt('health', () => getHealthOverview(), null);
+  if (health && health.status !== 'healthy') {
+    console.warn(`  ! health reads "${health.status}" — ${health.summary}`);
+  }
   const cacheStats  = await attempt('cache stats', () => getCacheStats(), null);
   const cacheConfig = await attempt('cache config', () => getCacheConfigForUI(), null);
   console.log(`  health/cache    ${health ? 'ok' : 'FAILED'} / ${cacheStats ? 'ok' : 'FAILED'}`);
